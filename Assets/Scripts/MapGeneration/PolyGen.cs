@@ -18,6 +18,24 @@ public class PolyGen : MonoBehaviour
     [SerializeField]
     private float jitterAmount = 0.5f;
 
+    [Header("Density Control")]
+    [SerializeField]
+    private Texture2D densityTexture; // Texture to control point density (white = high density)
+    [SerializeField]
+    private float densityMultiplier = 5f; // Overall multiplier for the density effect
+    [SerializeField]
+    private float minPointDistance = 0.5f; // Minimum distance between points
+    [SerializeField]
+    private float maxPointDistance = 10f; // Maximum distance between points
+
+    [Header("Debug Visualization")]
+    [SerializeField]
+    private bool showDensityHeatmap = false; // Show density influence as colored gizmos
+    [SerializeField]
+    private int heatmapResolution = 20; // Grid resolution for the heatmap
+    [SerializeField]
+    private float heatmapHeight = 0.05f; // Height of the heatmap above terrain
+
     [Header("Texture Settings")]
     [SerializeField]
     private Texture2D mapTexture;
@@ -53,6 +71,23 @@ public class PolyGen : MonoBehaviour
     {
         sites = new Vector2[points];
 
+        float width = rightBound.x - leftBound.x;
+        float height = rightBound.y - leftBound.y;
+
+        if (densityTexture != null)
+        {
+            // Use texture-based density control
+            GenerateDensityControlledSites();
+        }
+        else
+        {
+            // Original site generation if no density texture is specified
+            GenerateUniformSites();
+        }
+    }
+
+    private void GenerateUniformSites()
+    {
         float width = rightBound.x - leftBound.x;
         float height = rightBound.y - leftBound.y;
 
@@ -113,6 +148,222 @@ public class PolyGen : MonoBehaviour
         {
             sites[i] = tempSites[i];
         }
+    }
+
+    private void GenerateDensityControlledSites()
+    {
+        // Use blue noise (Poisson disk sampling) with variable radius based on density texture
+        List<Vector2> tempSites = GeneratePoissonDiskSampling();
+
+        // If we have too many points, only take the number requested
+        if (tempSites.Count > points)
+        {
+            // Prioritize points in higher density areas
+            tempSites.Sort((a, b) => {
+                float densityA = GetPointDensityFromTexture(a);
+                float densityB = GetPointDensityFromTexture(b);
+                return densityB.CompareTo(densityA); // Higher density first
+            });
+
+            tempSites = tempSites.GetRange(0, points);
+        }
+        // If we have too few points, add random ones
+        else while (tempSites.Count < points)
+            {
+                float posX = Random.Range(leftBound.x, rightBound.x);
+                float posY = Random.Range(leftBound.y, rightBound.y);
+                tempSites.Add(new Vector2(posX, posY));
+            }
+
+        // Apply the sites
+        for (int i = 0; i < points && i < tempSites.Count; i++)
+        {
+            sites[i] = tempSites[i];
+        }
+    }
+
+    private List<Vector2> GeneratePoissonDiskSampling()
+    {
+        List<Vector2> resultPoints = new List<Vector2>();
+        float width = rightBound.x - leftBound.x;
+        float height = rightBound.y - leftBound.y;
+
+        // Create a grid for spatial acceleration
+        float cellSize = minPointDistance / Mathf.Sqrt(2);
+        int cols = Mathf.CeilToInt(width / cellSize);
+        int rows = Mathf.CeilToInt(height / cellSize);
+
+        // Background grid to track point placements
+        int[,] grid = new int[cols, rows];
+        List<Vector2> activeList = new List<Vector2>();
+
+        // Try to start with a high density point
+        Vector2 firstPoint = FindHighDensityStartPoint();
+
+        resultPoints.Add(firstPoint);
+        activeList.Add(firstPoint);
+
+        // Add first point to grid
+        int x = Mathf.FloorToInt((firstPoint.x - leftBound.x) / cellSize);
+        int y = Mathf.FloorToInt((firstPoint.y - leftBound.y) / cellSize);
+        if (x >= 0 && x < cols && y >= 0 && y < rows)
+        {
+            grid[x, y] = 1;
+        }
+
+        // Process active points to find new valid points
+        while (activeList.Count > 0 && resultPoints.Count < points * 2) // Try to generate more points than needed
+        {
+            int randomIndex = Random.Range(0, activeList.Count);
+            Vector2 point = activeList[randomIndex];
+
+            bool foundValidPoint = false;
+
+            // Get sampling radius for this location based on texture density
+            float radius = GetSamplingRadius(point);
+
+            // Try to find a new valid point around the current point
+            for (int i = 0; i < 30; i++) // Try 30 times
+            {
+                float angle = Random.Range(0f, Mathf.PI * 2f);
+                float distance = Random.Range(radius, 2f * radius);
+
+                Vector2 newPoint = new Vector2(
+                    point.x + distance * Mathf.Cos(angle),
+                    point.y + distance * Mathf.Sin(angle)
+                );
+
+                // Check if the point is within bounds
+                if (newPoint.x < leftBound.x || newPoint.x > rightBound.x ||
+                    newPoint.y < leftBound.y || newPoint.y > rightBound.y)
+                {
+                    continue;
+                }
+
+                // Check grid cell of new point
+                int newX = Mathf.FloorToInt((newPoint.x - leftBound.x) / cellSize);
+                int newY = Mathf.FloorToInt((newPoint.y - leftBound.y) / cellSize);
+
+                if (newX < 0 || newX >= cols || newY < 0 || newY >= rows || grid[newX, newY] > 0)
+                {
+                    continue;
+                }
+
+                // Check if too close to other points
+                bool tooClose = false;
+                float newPointRadius = GetSamplingRadius(newPoint);
+
+                // Check nearby cells
+                int cellRadius = Mathf.CeilToInt(maxPointDistance / cellSize);
+
+                for (int gridX = Mathf.Max(0, newX - cellRadius); gridX <= Mathf.Min(cols - 1, newX + cellRadius); gridX++)
+                {
+                    for (int gridY = Mathf.Max(0, newY - cellRadius); gridY <= Mathf.Min(rows - 1, newY + cellRadius); gridY++)
+                    {
+                        if (grid[gridX, gridY] > 0)
+                        {
+                            int pointIndex = grid[gridX, gridY] - 1;
+                            if (pointIndex < resultPoints.Count)
+                            {
+                                float dist = Vector2.Distance(newPoint, resultPoints[pointIndex]);
+                                if (dist < newPointRadius)
+                                {
+                                    tooClose = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (tooClose) break;
+                }
+
+                if (!tooClose)
+                {
+                    // Add point to lists and grid
+                    resultPoints.Add(newPoint);
+                    activeList.Add(newPoint);
+                    grid[newX, newY] = resultPoints.Count;
+                    foundValidPoint = true;
+                    break;
+                }
+            }
+
+            // If no valid point found, remove the point from active list
+            if (!foundValidPoint)
+            {
+                activeList.RemoveAt(randomIndex);
+            }
+        }
+
+        return resultPoints;
+    }
+
+    private Vector2 FindHighDensityStartPoint()
+    {
+        // Try to find a good starting point with high density
+        int samples = 20;
+        Vector2 bestPoint = Vector2.zero;
+        float highestDensity = 0f;
+
+        for (int i = 0; i < samples; i++)
+        {
+            float posX = Random.Range(leftBound.x, rightBound.x);
+            float posY = Random.Range(leftBound.y, rightBound.y);
+            Vector2 testPoint = new Vector2(posX, posY);
+
+            float density = GetPointDensityFromTexture(testPoint);
+            if (density > highestDensity)
+            {
+                highestDensity = density;
+                bestPoint = testPoint;
+            }
+        }
+
+        // If we didn't find a high density point, use a random one
+        if (highestDensity <= 0.1f)
+        {
+            bestPoint = new Vector2(
+                Random.Range(leftBound.x, rightBound.x),
+                Random.Range(leftBound.y, rightBound.y)
+            );
+        }
+
+        return bestPoint;
+    }
+
+    private float GetSamplingRadius(Vector2 point)
+    {
+        float density = GetPointDensityFromTexture(point);
+
+        // Map density [0,1] to radius [maxPointDistance, minPointDistance]
+        // Higher density (closer to 1) = smaller radius = denser points
+        float radius = Mathf.Lerp(maxPointDistance, minPointDistance, density);
+
+        return radius;
+    }
+
+    private float GetPointDensityFromTexture(Vector2 point)
+    {
+        if (densityTexture == null)
+        {
+            return 0f; // No texture means uniform density
+        }
+
+        // Convert world point to texture UV
+        float normalizedX = Mathf.InverseLerp(leftBound.x, rightBound.x, point.x);
+        float normalizedY = Mathf.InverseLerp(leftBound.y, rightBound.y, point.y);
+
+        // Sample the texture
+        Color pixelColor = densityTexture.GetPixelBilinear(normalizedX, normalizedY);
+
+        // Get the grayscale value (white = high density)
+        float density = (pixelColor.r + pixelColor.g + pixelColor.b) / 3f;
+
+        // Apply the density multiplier
+        density *= densityMultiplier;
+
+        // Clamp between 0 and 1
+        return Mathf.Clamp01(density);
     }
 
     private void ComputeVoronoiDiagram()
@@ -234,10 +485,10 @@ public class PolyGen : MonoBehaviour
 
     private void GenerateVoronoiDiagram()
     {
-        // Step 1: Generate random points (sites) within bounds
+        // Step 1: Generate points (sites) within bounds
         GenerateSites();
 
-        // Step 2: Create Voronoi diagram using the Fortune's algorithm simulation
+        // Step 2: Create Voronoi diagram
         ComputeVoronoiDiagram();
     }
 
@@ -315,7 +566,13 @@ public class PolyGen : MonoBehaviour
 
     private void OnDrawGizmos()
     {
-        // Skip if no data
+        // Draw density heatmap if requested
+        if (showDensityHeatmap && densityTexture != null)
+        {
+            DrawDensityHeatmap();
+        }
+
+        // Skip if no Voronoi data
         if (sites == null || vertices == null || cellVertexIndices == null)
             return;
 
@@ -358,6 +615,89 @@ public class PolyGen : MonoBehaviour
                 Gizmos.DrawSphere(new Vector3(site.x, 0, site.y), pointRadius);
             }
         }
+    }
+
+    private void DrawDensityHeatmap()
+    {
+        // Calculate cells to display heatmap
+        float width = rightBound.x - leftBound.x;
+        float height = rightBound.y - leftBound.y;
+        float cellWidth = width / heatmapResolution;
+        float cellHeight = height / heatmapResolution;
+
+        // Draw grid of cubes with color based on density from texture
+        for (int x = 0; x < heatmapResolution; x++)
+        {
+            for (int y = 0; y < heatmapResolution; y++)
+            {
+                float posX = leftBound.x + (x + 0.5f) * cellWidth;
+                float posY = leftBound.y + (y + 0.5f) * cellHeight;
+                Vector2 pos = new Vector2(posX, posY);
+
+                // Get density at this position
+                float density = GetPointDensityFromTexture(pos);
+
+                // Convert density to color (red = high density, blue = low density)
+                Color cellColor = Color.Lerp(Color.blue, Color.red, density);
+                cellColor.a = 0.6f; // Semi-transparent
+
+                // Draw cube with color indicating density
+                Gizmos.color = cellColor;
+
+                // Calculate size based on density (higher density = larger cube)
+                float sizeMultiplier = Mathf.Lerp(0.3f, 1.0f, density);
+                float cubeSize = Mathf.Min(cellWidth, cellHeight) * 0.8f * sizeMultiplier;
+
+                // Draw the cube
+                Vector3 cubePosition = new Vector3(posX, heatmapHeight, posY);
+                Gizmos.DrawCube(cubePosition, new Vector3(cubeSize, cubeSize * 0.2f, cubeSize));
+
+                // Draw a vertical line from high density points to illustrate "height"
+                if (density > 0.6f)
+                {
+                    float lineHeight = density * 0.5f;
+                    Gizmos.DrawLine(
+                        cubePosition,
+                        new Vector3(cubePosition.x, cubePosition.y + lineHeight, cubePosition.z)
+                    );
+                }
+            }
+        }
+
+        // Draw a legend for the heatmap
+        DrawHeatmapLegend();
+    }
+
+    private void DrawHeatmapLegend()
+    {
+        // Define legend position (bottom right corner)
+        float legendWidth = 0.5f;
+        float legendHeight = 1.5f;
+        Vector3 legendStart = new Vector3(rightBound.x - 0.6f, heatmapHeight, leftBound.y + 0.6f);
+
+        // Draw legend background
+        Gizmos.color = new Color(0.2f, 0.2f, 0.2f, 0.7f);
+        Gizmos.DrawCube(legendStart + new Vector3(0, 0, legendHeight / 2), new Vector3(legendWidth + 0.1f, 0.05f, legendHeight + 0.1f));
+
+        // Draw gradient bar
+        int steps = 10;
+        float stepSize = legendHeight / steps;
+
+        for (int i = 0; i < steps; i++)
+        {
+            float t = (float)i / (steps - 1); // 0 to 1
+            Color color = Color.Lerp(Color.blue, Color.red, t);
+            color.a = 0.8f;
+
+            Gizmos.color = color;
+            Vector3 stepPos = legendStart + new Vector3(0, 0.01f, i * stepSize);
+            Gizmos.DrawCube(stepPos, new Vector3(legendWidth, 0.02f, stepSize * 0.9f));
+        }
+
+        // Draw labels
+        UnityEditor.Handles.color = Color.white;
+        UnityEditor.Handles.Label(legendStart + new Vector3(0, 0.05f, 0), "Low Density");
+        UnityEditor.Handles.Label(legendStart + new Vector3(0, 0.05f, legendHeight), "High Density");
     }
 
     // Editor menu option to save land data
