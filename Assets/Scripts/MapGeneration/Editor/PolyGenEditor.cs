@@ -26,7 +26,7 @@ public class PolyGenEditor : Editor
     {
         // Draw the default inspector
         DrawDefaultInspector();
-        
+
         // Add space for separation
         EditorGUILayout.Space(10);
 
@@ -62,7 +62,6 @@ public class PolyGenEditor : Editor
         EditorGUILayout.PrefixLabel("Water Material");
         waterMaterial = (Material)EditorGUILayout.ObjectField(waterMaterial, typeof(Material), false);
         EditorGUILayout.EndHorizontal();
-
 
         // Edge Highlight Settings
         EditorGUILayout.Space(10);
@@ -119,6 +118,19 @@ public class PolyGenEditor : Editor
         EditorGUILayout.PrefixLabel("Neighbor Radius");
         neighborDetectionRadius = EditorGUILayout.FloatField(neighborDetectionRadius);
         EditorGUILayout.EndHorizontal();
+
+        // Add the new Fix Polygon Gaps button section
+        EditorGUILayout.Space(20);
+        EditorGUILayout.LabelField("Fix Polygon Gaps", EditorStyles.boldLabel);
+
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button("Fix Polygon Gaps", GUILayout.Height(30), GUILayout.Width(150)))
+        {
+            EnsureSharedEdges();
+        }
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
     }
 
     private void GeneratePolygons(PolyGen polyGen)
@@ -144,6 +156,9 @@ public class PolyGenEditor : Editor
                 }
             }
 
+            // Process vertices to ensure they align properly
+            ProcessVoronoiVertices(polyGen);
+
             // Create meshes for each polygon
             CreateMeshes(polyGen);
         }
@@ -151,6 +166,158 @@ public class PolyGenEditor : Editor
         {
             Debug.LogError("Could not find GenerateVoronoiDiagram method");
         }
+    }
+
+    // New method to process Voronoi vertices before mesh generation
+    private void ProcessVoronoiVertices(PolyGen polyGen)
+    {
+        // Get the vertices from PolyGen
+        Vector2[] vertices = (Vector2[])polyGen.GetType().GetField("vertices",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(polyGen);
+
+        if (vertices == null || vertices.Length == 0)
+        {
+            Debug.LogError("No vertices found to process");
+            return;
+        }
+
+        // Get the cell vertex indices
+        List<List<int>> cellVertexIndices = (List<List<int>>)polyGen.GetType().GetField("cellVertexIndices",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(polyGen);
+
+        if (cellVertexIndices == null)
+        {
+            Debug.LogError("No cell vertex indices found");
+            return;
+        }
+
+        Debug.Log($"Processing {vertices.Length} vertices for {cellVertexIndices.Count} cells");
+
+        // Create a grid for snapping vertices
+        float snapFactor = 0.0001f;
+        Dictionary<Vector2, Vector2> snappedVertices = new Dictionary<Vector2, Vector2>();
+        Dictionary<int, int> vertexRemapping = new Dictionary<int, int>();
+
+        // First pass: collect all vertices and snap them to a grid
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            Vector2 v = vertices[i];
+            Vector2 snappedV = new Vector2(
+                Mathf.Round(v.x / snapFactor) * snapFactor,
+                Mathf.Round(v.y / snapFactor) * snapFactor
+            );
+
+            // Store the snapped version
+            if (!snappedVertices.ContainsKey(v))
+            {
+                snappedVertices.Add(v, snappedV);
+            }
+        }
+
+        // Apply snapped values back to the original array
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            if (snappedVertices.TryGetValue(vertices[i], out Vector2 snappedV))
+            {
+                vertices[i] = snappedV;
+            }
+        }
+
+        // Set the updated vertices back to PolyGen
+        polyGen.GetType().GetField("vertices",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(polyGen, vertices);
+
+        Debug.Log("Vertex processing complete");
+    }
+    // Add a helper method to clean up edges and ensure they connect
+    private void CleanUpEdges(List<Tile> tiles)
+    {
+        if (tiles.Count <= 1) return;
+
+        Debug.Log("Cleaning up edges to ensure proper connections...");
+
+        // Map to store vertex positions and their corresponding tiles
+        Dictionary<Vector3, List<Tile>> vertexToTiles = new Dictionary<Vector3, List<Tile>>();
+        Dictionary<Vector3, Vector3> snappedVertexMap = new Dictionary<Vector3, Vector3>();
+
+        float snapThreshold = 0.01f; // Threshold for considering vertices the same
+
+        // First pass: collect all vertices from all tiles
+        foreach (Tile tile in tiles)
+        {
+            MeshFilter mf = tile.GetComponent<MeshFilter>();
+            if (mf == null || mf.sharedMesh == null) continue;
+
+            Vector3[] verts = mf.sharedMesh.vertices;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 worldVert = tile.transform.TransformPoint(verts[i]);
+
+                // Skip center vertex (usually at index 0)
+                if (i == 0) continue;
+
+                // Check if this vertex is close to any existing one
+                bool foundMatch = false;
+                foreach (var key in vertexToTiles.Keys)
+                {
+                    if (Vector3.Distance(worldVert, key) < snapThreshold)
+                    {
+                        // Store mapping from this vertex to the snapped one
+                        snappedVertexMap[worldVert] = key;
+
+                        // Add this tile to the list for this vertex
+                        vertexToTiles[key].Add(tile);
+                        foundMatch = true;
+                        break;
+                    }
+                }
+
+                if (!foundMatch)
+                {
+                    // Create new entry
+                    vertexToTiles[worldVert] = new List<Tile> { tile };
+                }
+            }
+        }
+
+        // Second pass: update vertices to ensure they perfectly match
+        foreach (Tile tile in tiles)
+        {
+            MeshFilter mf = tile.GetComponent<MeshFilter>();
+            if (mf == null || mf.sharedMesh == null) continue;
+
+            Vector3[] verts = mf.sharedMesh.vertices;
+            bool meshModified = false;
+
+            for (int i = 1; i < verts.Length; i++) // Skip center vertex
+            {
+                Vector3 worldVert = tile.transform.TransformPoint(verts[i]);
+
+                // Check if this vertex should be snapped
+                if (snappedVertexMap.TryGetValue(worldVert, out Vector3 snappedVert))
+                {
+                    // Convert snapped world vertex back to local space
+                    Vector3 localSnapped = tile.transform.InverseTransformPoint(snappedVert);
+
+                    if (Vector3.Distance(verts[i], localSnapped) > 0.0001f)
+                    {
+                        verts[i] = localSnapped;
+                        meshModified = true;
+                    }
+                }
+            }
+
+            // Apply changes if needed
+            if (meshModified)
+            {
+                Mesh newMesh = Instantiate(mf.sharedMesh);
+                newMesh.vertices = verts;
+                newMesh.RecalculateBounds();
+                mf.sharedMesh = newMesh;
+            }
+        }
+
+        Debug.Log("Edge cleanup complete");
     }
 
     private void CreateMeshes(PolyGen polyGen)
@@ -362,6 +529,7 @@ public class PolyGenEditor : Editor
         return fullPath;
     }
 
+    // Modify this method in your PolyGenEditor.cs
     private Mesh CreateCenteredPolygonMesh(List<int> cellIndices, Vector2[] allVertices, Vector2 site)
     {
         if (cellIndices.Count < 3)
@@ -386,7 +554,12 @@ public class PolyGenEditor : Editor
             {
                 Vector2 v = allVertices[vertIndex];
                 // Subtract center to make mesh centered at origin
-                meshVertices[i + 1] = new Vector3(v.x - center.x, 0, v.y - center.y);
+                // Important: We're using a small epsilon to snap vertices to a grid
+                // This helps ensure adjacent polygons share exact vertex positions
+                float snapFactor = 0.0001f; // Adjust based on your scale
+                float xSnapped = Mathf.Round((v.x - center.x) / snapFactor) * snapFactor;
+                float ySnapped = Mathf.Round((v.y - center.y) / snapFactor) * snapFactor;
+                meshVertices[i + 1] = new Vector3(xSnapped, 0, ySnapped);
             }
         }
 
@@ -418,6 +591,7 @@ public class PolyGenEditor : Editor
 
         return mesh;
     }
+
     private void ProcessTileNeighbors()
     {
         // First make sure we have enough tiles to process
@@ -580,18 +754,167 @@ public class PolyGenEditor : Editor
         }
     }
 
-    // Helper method to check if two edges overlap
+    // Update this helper method in your PolyGenEditor.cs
     private bool EdgesOverlap(Edge edge1, Edge edge2, float tolerance)
     {
-        // Check if the edges are approximately the same (in either direction)
-        bool sameDirectOrder = (Vector3.Distance(edge1.v1, edge2.v1) < tolerance &&
-                               Vector3.Distance(edge1.v2, edge2.v2) < tolerance);
+        // Increase tolerance for better edge detection
+        float edgeTolerance = tolerance;
 
-        bool reverseOrder = (Vector3.Distance(edge1.v1, edge2.v2) < tolerance &&
-                            Vector3.Distance(edge1.v2, edge2.v1) < tolerance);
+        // Check if the edges are approximately the same (in either direction)
+        bool sameDirectOrder = (Vector3.Distance(edge1.v1, edge2.v1) < edgeTolerance &&
+                               Vector3.Distance(edge1.v2, edge2.v2) < edgeTolerance);
+
+        bool reverseOrder = (Vector3.Distance(edge1.v1, edge2.v2) < edgeTolerance &&
+                            Vector3.Distance(edge1.v2, edge2.v1) < edgeTolerance);
+
+        // Also check if the edges are partially overlapping
+        // This helps with cases where vertex snapping might not be perfect
+        if (!sameDirectOrder && !reverseOrder)
+        {
+            // Calculate edge vectors
+            Vector3 dir1 = (edge1.v2 - edge1.v1).normalized;
+            Vector3 dir2 = (edge2.v2 - edge2.v1).normalized;
+
+            // If edges are roughly parallel
+            if (Vector3.Dot(dir1, dir2) > 0.99f || Vector3.Dot(dir1, dir2) < -0.99f)
+            {
+                // Project endpoints of edge2 onto edge1
+                float proj11 = Vector3.Dot(edge2.v1 - edge1.v1, dir1);
+                float proj12 = Vector3.Dot(edge2.v2 - edge1.v1, dir1);
+
+                // Length of edge1
+                float len1 = Vector3.Distance(edge1.v1, edge1.v2);
+
+                // Check if projections overlap with edge1
+                bool overlap = (proj11 >= 0 && proj11 <= len1) ||
+                               (proj12 >= 0 && proj12 <= len1) ||
+                               (proj11 <= 0 && proj12 >= len1);
+
+                if (overlap)
+                {
+                    // Check distance between edges
+                    Vector3 perp = Vector3.Cross(dir1, Vector3.up).normalized;
+                    float dist = Mathf.Abs(Vector3.Dot(edge2.v1 - edge1.v1, perp));
+
+                    return dist < edgeTolerance;
+                }
+            }
+        }
 
         return sameDirectOrder || reverseOrder;
     }
+
+    // Add this method to process all edges in the scene to ensure they're connected
+    private void SnapAllVerticesToGrid()
+    {
+        Debug.Log("Snapping all vertices to grid to ensure edge connectivity...");
+
+        float snapFactor = 0.0001f; // Same as in CreateCenteredPolygonMesh
+        Dictionary<Vector3, Vector3> snappedVerticesMap = new Dictionary<Vector3, Vector3>();
+
+        // First pass - collect all vertices and create a mapping to snapped positions
+        foreach (Tile tile in tilesCreated)
+        {
+            MeshFilter meshFilter = tile.GetComponent<MeshFilter>();
+            if (meshFilter == null || meshFilter.sharedMesh == null) continue;
+
+            Mesh mesh = meshFilter.sharedMesh;
+            Vector3[] vertices = mesh.vertices;
+
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                // Transform to world space
+                Vector3 worldPos = tile.transform.TransformPoint(vertices[i]);
+
+                // Snap to grid
+                Vector3 snappedPos = new Vector3(
+                    Mathf.Round(worldPos.x / snapFactor) * snapFactor,
+                    worldPos.y,
+                    Mathf.Round(worldPos.z / snapFactor) * snapFactor
+                );
+
+                // Store in dictionary
+                if (!snappedVerticesMap.ContainsKey(worldPos))
+                {
+                    snappedVerticesMap.Add(worldPos, snappedPos);
+                }
+            }
+        }
+
+        // Second pass - apply snapped vertices to all meshes
+        foreach (Tile tile in tilesCreated)
+        {
+            MeshFilter meshFilter = tile.GetComponent<MeshFilter>();
+            if (meshFilter == null || meshFilter.sharedMesh == null) continue;
+
+            Mesh mesh = meshFilter.sharedMesh;
+            Vector3[] vertices = mesh.vertices;
+            bool modified = false;
+
+            // Update vertices based on the snapped positions
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                Vector3 worldPos = tile.transform.TransformPoint(vertices[i]);
+
+                if (snappedVerticesMap.TryGetValue(worldPos, out Vector3 snappedPos))
+                {
+                    // Transform back to local space
+                    Vector3 localSnapped = tile.transform.InverseTransformPoint(snappedPos);
+
+                    // Only update if it's different
+                    if (Vector3.Distance(vertices[i], localSnapped) > 0.00001f)
+                    {
+                        vertices[i] = localSnapped;
+                        modified = true;
+                    }
+                }
+            }
+
+            // Apply changes if needed
+            if (modified)
+            {
+                mesh.vertices = vertices;
+                mesh.RecalculateBounds();
+            }
+        }
+
+        Debug.Log("Vertex snapping complete");
+    }
+    // Add this method to the PolyGenEditor class
+    private void EnsureSharedEdges()
+    {
+        Debug.Log("Ensuring shared edges between tiles...");
+
+        // First, perform vertex snapping to ensure vertices are aligned
+        SnapAllVerticesToGrid();
+
+        // Then increase tolerance for neighbor detection
+        neighborDetectionRadius = 1.5f; // Increase from default 1.0
+
+        // Process neighbors with increased tolerance
+        ProcessTileNeighbors();
+
+        Debug.Log("Edge connectivity process complete");
+    }
+
+    // Add a button to use this function in your OnInspectorGUI method
+    private void AddEnsureSharedEdgesButton()
+    {
+        // Add a section for fixing gaps
+        EditorGUILayout.Space(20);
+        EditorGUILayout.LabelField("Fix Polygon Gaps", EditorStyles.boldLabel);
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        if (GUILayout.Button("Fix Polygon Gaps", GUILayout.Height(30), GUILayout.Width(150)))
+        {
+            EnsureSharedEdges();
+        }
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
+    }
+
     private void PlaceMeshesInScene(PolyGen polyGen)
     {
         // Clear any previously stored tiles
