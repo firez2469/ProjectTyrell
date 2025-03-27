@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 public class Pointer : MonoBehaviour
 {
     private Tile[] tiles;
     private Tile activeTile;
+    [SerializeField]
+    private LineRenderer selector;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -36,6 +39,8 @@ public class Pointer : MonoBehaviour
                     activeTile = t;
                     print(t.Name);
                     t.Show();
+                    Assign(t);
+                    
                 }
             }
             else
@@ -51,5 +56,17 @@ public class Pointer : MonoBehaviour
         }
        
             
+    }
+
+    private void Assign(Tile tile)
+    {
+        
+        Vector3[] outline= tile.outlinePoints;
+        //selector.transform.position = tile.transform.position;
+        selector.transform.localScale = new Vector3(-12, 1, 7);
+        selector.positionCount = outline.Length;
+        selector.SetPositions(outline);
+        selector.startColor = (tile.isLand? Color.green : Color.blue);
+        selector.endColor = (tile.isLand ? Color.green : Color.blue);
     }
 }

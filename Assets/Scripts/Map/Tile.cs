@@ -9,9 +9,6 @@ public class Tile : MonoBehaviour
     public List<string> neighbors;
     public bool isLand;
     public Color disabledColor;
-
-    // Store the outline points in world space
-    [HideInInspector]
     public Vector3[] outlinePoints;
 
     // Reference to this tile's line renderer
@@ -23,7 +20,7 @@ public class Tile : MonoBehaviour
     private void Start()
     {
         // Get the outline points from the corresponding MeshTile if not already set
-        if (outlinePoints == null || outlinePoints.Length == 0)
+       /* if (outlinePoints == null || outlinePoints.Length == 0)
         {
             MapMeshGeneration mapGenerator = FindFirstObjectByType<MapMeshGeneration>();
             if (mapGenerator != null)
@@ -43,7 +40,7 @@ public class Tile : MonoBehaviour
                     }
                 }
             }
-        }
+        }*/
     }
 
     private void SetupLineRenderer(MapMeshGeneration mapGenerator)
@@ -94,7 +91,7 @@ public class Tile : MonoBehaviour
 
     public void Show()
     {
-        if (MapMeshGeneration.highlightLineRenderer != null && outlinePoints != null && outlinePoints.Length > 0)
+        /*if (MapMeshGeneration.highlightLineRenderer != null && outlinePoints != null && outlinePoints.Length > 0)
         {
             // Set the highlight line renderer to outline this tile
             MapMeshGeneration.highlightLineRenderer.positionCount = outlinePoints.Length;
@@ -125,11 +122,11 @@ public class Tile : MonoBehaviour
                 tileLineRenderer.enabled = false;
             }
         }
-    }
+    */}
 
     public void Hide()
     {
-        if (MapMeshGeneration.highlightLineRenderer != null && isHighlighted)
+       /* if (MapMeshGeneration.highlightLineRenderer != null && isHighlighted)
         {
             // Deactivate the highlight line renderer
             MapMeshGeneration.highlightLineRenderer.positionCount = 0;
@@ -141,7 +138,7 @@ public class Tile : MonoBehaviour
             {
                 tileLineRenderer.enabled = true;
             }
-        }
+        }*/
     }
 
     public void Thick()

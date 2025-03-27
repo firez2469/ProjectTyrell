@@ -506,45 +506,9 @@ public class MapMeshGeneration : MonoBehaviour
             tileComponent.Id = tile.id;
             tileComponent.neighbors = tile.neighbors;
             tileComponent.isLand = tile.type == MeshTileType.Land;
-
-            // Create a child GameObject for the LineRenderer
-            GameObject lineRendererObj = new GameObject("TileOutline");
-            lineRendererObj.transform.SetParent(tileObject.transform);
-            lineRendererObj.transform.localPosition = Vector3.zero;
-            lineRendererObj.transform.localRotation = Quaternion.identity;
-
-            // Add LineRenderer to the child object
-            /*LineRenderer tileLineRenderer = lineRendererObj.AddComponent<LineRenderer>();
-            tileLineRenderer.useWorldSpace = false; // Use local space
-            tileLineRenderer.loop = true;
-            tileLineRenderer.widthMultiplier = lineWidth * 0.75f; // Slightly thinner than global outline
-            tileLineRenderer.material = new Material(Shader.Find("Sprites/Default"));
-
-            // Convert world space points to local space relative to the tile
-            List<Vector3> localOutlinePoints = new List<Vector3>();
-            foreach (Vector3 worldPoint in tileOutlinePoints)
-            {
-                localOutlinePoints.Add(tileObject.transform.InverseTransformPoint(worldPoint));
-            }
-
-            // Set the positions for the tile's LineRenderer
-            tileLineRenderer.positionCount = localOutlinePoints.Count;
-            tileLineRenderer.SetPositions(localOutlinePoints.ToArray());
-
-            // Set color based on tile type
-            Color tileLineColor = tile.type == MeshTileType.Land ? landLineColor : seaLineColor;
-            Gradient tileGradient = new Gradient();
-            GradientColorKey[] tileColorKeys = new GradientColorKey[1];
-            tileColorKeys[0] = new GradientColorKey(tileLineColor, 0f);
-
-            GradientAlphaKey[] tileAlphaKeys = new GradientAlphaKey[1];
-            tileAlphaKeys[0] = new GradientAlphaKey(1f, 0f);
-
-            tileGradient.SetKeys(tileColorKeys, tileAlphaKeys);
-            tileLineRenderer.colorGradient = tileGradient;
-
-            // Store the LineRenderer in the Tile component for later access
-            tileComponent.tileLineRenderer = tileLineRenderer;*/
+            tileComponent.outlinePoints = tile.outlinePoints;
+            print("Added " + tile.outlinePoints.Length + " points");
+            
         }
 
         // Set all points for the world line renderer
