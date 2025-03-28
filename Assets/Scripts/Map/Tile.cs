@@ -126,19 +126,7 @@ public class Tile : MonoBehaviour
 
     public void Hide()
     {
-       /* if (MapMeshGeneration.highlightLineRenderer != null && isHighlighted)
-        {
-            // Deactivate the highlight line renderer
-            MapMeshGeneration.highlightLineRenderer.positionCount = 0;
-            MapMeshGeneration.highlightLineRenderer.gameObject.SetActive(false);
-            isHighlighted = false;
-
-            // Make the tile's own line renderer visible again
-            if (tileLineRenderer != null)
-            {
-                tileLineRenderer.enabled = true;
-            }
-        }*/
+      
     }
 
     public void Thick()

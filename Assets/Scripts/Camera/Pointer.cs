@@ -8,12 +8,13 @@ public class Pointer : MonoBehaviour
     private Tile activeTile;
     [SerializeField]
     private LineRenderer selector;
+    public static Tile Selected;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
         this.tiles = FindObjectsByType<Tile>(FindObjectsSortMode.InstanceID);
-
+        Selected = null;
     }
 
    
@@ -40,6 +41,7 @@ public class Pointer : MonoBehaviour
                     print(t.Name);
                     t.Show();
                     Assign(t);
+                    ProvinceUI.Open();
                     
                 }
             }
@@ -48,6 +50,8 @@ public class Pointer : MonoBehaviour
                 if(activeTile != null)
                 {
                     activeTile.Hide();
+                    Selected = null;
+                    ProvinceUI.Close();
                 }
                
                 activeTile = null;
@@ -68,5 +72,6 @@ public class Pointer : MonoBehaviour
         selector.SetPositions(outline);
         selector.startColor = (tile.isLand? Color.green : Color.blue);
         selector.endColor = (tile.isLand ? Color.green : Color.blue);
+        Selected = tile;
     }
 }
