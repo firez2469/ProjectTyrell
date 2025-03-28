@@ -5,10 +5,58 @@ import matplotlib.pyplot as plt
 from matplotlib.image import imread
 from collections import defaultdict
 import os
+from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
+import colorsys
 
 # Texture file for land/sea determination
 TEXTURE_FILE = 'maps/TyrellLandMap.png'  # Replace with your texture file path
+ENV_TEXTURE_FILE = 'maps/TyrellBiomeMap.png'
 LAND_SEA_THRESHOLD = 0.1  # Threshold value: above = land, below = sea
+
+# Define biome colors based on the biome map legend (RGB values)
+# The colors may vary slightly from the image, so we'll use closest match
+BIOME_COLORS = {
+    "Polar Ice Caps": [192, 192, 192],  # Light gray
+    "Polar Tundra": [64, 64, 64],       # Dark gray
+    "Subarctic Continental": [32, 96, 32],  # Dark green
+    "Humid Continental": [128, 192, 32],   # Lime green
+    "Oceanic Climate": [64, 192, 64],    # Medium green
+    "Cold Rainforests": [0, 128, 64],     # Forest green
+    "Mediterranean": [32, 128, 64],      # Medium dark green
+    "Humid Subtropical": [96, 192, 32],   # Bright green
+    "Cold Steppe": [255, 192, 64],       # Light orange
+    "Cold Desert": [224, 160, 128],      # Pink/salmon
+    "Hot Steppe": [255, 128, 0],         # Orange
+    "Hot Desert": [255, 0, 0],           # Red
+    "Tropical Savanna": [255, 128, 64],  # Orange-red
+    "Monsoon rainforest": [64, 192, 192], # Teal
+    "Tropical Rainforest": [64, 64, 255], # Blue
+    "High Mountains": [0, 0, 0]          # Black
+}
+
+# Function to find the closest biome color to a given RGB value
+def find_closest_biome(pixel_rgb):
+    """
+    Find the closest biome based on color distance
+    
+    Args:
+        pixel_rgb: RGB values of the pixel (0-255 scale)
+    
+    Returns:
+        String with the closest biome name
+    """
+    min_distance = float('inf')
+    closest_biome = "Unknown"
+    
+    for biome_name, biome_color in BIOME_COLORS.items():
+        # Calculate Euclidean distance in RGB space
+        distance = np.sqrt(sum((np.array(pixel_rgb) - np.array(biome_color))**2))
+        
+        if distance < min_distance:
+            min_distance = distance
+            closest_biome = biome_name
+    
+    return closest_biome
 
 def extract_voronoi_polygons(voronoi_data):
     """
@@ -134,6 +182,7 @@ def create_tile_dictionary(voronoi_data, polygons):
             "name": f"tile{i}",
             "edges": polygon,
             "type": "land",  # Default type, will be updated later
+            "biome": "Unknown", # Default biome, will be updated later
             "neighbors": [f"tile{j}" for j in neighbors]
         }
         
@@ -224,14 +273,6 @@ def assign_land_sea_from_texture(tiles, polygon_centers):
         # Get texture dimensions
         height, width = texture_gray.shape
         
-        # Debug - save the grayscale texture to verify it
-        plt.figure(figsize=(8, 8))
-        plt.imshow(texture_gray, cmap='gray')
-        plt.title('Grayscale Texture Used for Sampling')
-        plt.colorbar(label='Pixel Value')
-        plt.savefig('texture_grayscale_debug.png')
-        plt.close()
-        
         # Create texture flipped if needed (check if map is flipped)
         texture_flipped = np.flipud(texture_gray)  # Flip vertically
         
@@ -258,17 +299,8 @@ def assign_land_sea_from_texture(tiles, polygon_centers):
             y_normal = max(0, min(y_normal, height - 1))
             y_flipped = max(0, min(y_flipped, height - 1))
             
-            # Get pixel values for both coordinate systems
-            pixel_value_normal = texture_gray[y_normal, x]
-            pixel_value_flipped = texture_flipped[y_flipped, x]
-            
-            # Debug - log a few values to see what's happening
-            if i < 10 or i % 100 == 0:
-                print(f"Tile {i}: center={center}, texture coords=({x},{y_normal}), flipped=({x},{y_flipped}), " 
-                      f"value={pixel_value_normal}, flipped_value={pixel_value_flipped}")
-            
             # Use the flipped coordinates, which is likely correct for image-to-world mapping
-            pixel_value = pixel_value_flipped
+            pixel_value = texture_flipped[y_flipped, x]
             
             # Assign type based on threshold (white = land, black = sea)
             if pixel_value > LAND_SEA_THRESHOLD:
@@ -285,51 +317,137 @@ def assign_land_sea_from_texture(tiles, polygon_centers):
         traceback.print_exc()
         return tiles
 
-def visualize_land_sea_map(voronoi_data, tiles, polygon_centers):
+def assign_biomes_from_texture(tiles, polygon_centers):
     """
-    Visualize the land-sea map with different colors for different tile types.
+    Assign biome types to tiles based on a biome texture file.
+    
+    Args:
+        tiles: List of tile dictionaries
+        polygon_centers: List of center coordinates for each polygon
+    
+    Returns:
+        Updated tiles with biome types
+    """
+    # Check if biome texture file exists
+    if not os.path.exists(ENV_TEXTURE_FILE):
+        print(f"Warning: Biome texture file '{ENV_TEXTURE_FILE}' not found. Using default biome distribution.")
+        return tiles
+    
+    # Load biome texture file
+    try:
+        biome_texture = imread(ENV_TEXTURE_FILE)
+        
+        # Make sure it's in RGB format
+        if len(biome_texture.shape) != 3 or biome_texture.shape[2] < 3:
+            print(f"Warning: Biome texture file does not appear to be RGB. Cannot assign biomes.")
+            return tiles
+        
+        # Normalize if needed (0-255 scale to 0-1)
+        if biome_texture.max() <= 1.0:
+            biome_texture = biome_texture * 255.0
+            
+        # Create a debug image to verify colors
+        plt.figure(figsize=(12, 12))
+        plt.imshow(biome_texture)
+        plt.title('Biome Map Texture')
+        plt.savefig('biome_texture_debug.png')
+        plt.close()
+        
+        # Get texture dimensions
+        height, width = biome_texture.shape[:2]
+        
+        # Create flipped texture
+        biome_texture_flipped = np.flipud(biome_texture)  # Flip vertically
+        
+        # Ensure all polygon centers are within [0,1] range
+        normalized_centers = []
+        for center in polygon_centers:
+            # Clip coordinates to [0,1] range
+            normalized_center = np.clip(center, 0, 1)
+            normalized_centers.append(normalized_center)
+        
+        # Create a dictionary to count biome occurrences
+        biome_count = defaultdict(int)
+        
+        # Assign biome based on texture color
+        for i, center in enumerate(normalized_centers):
+            # Map center coordinates to texture coordinates
+            x = int(center[0] * (width - 1))
+            y_flipped = int((1 - center[1]) * (height - 1))  # Using flipped coordinates
+            
+            # Bounds checking to prevent index errors
+            x = max(0, min(x, width - 1))
+            y_flipped = max(0, min(y_flipped, height - 1))
+            
+            # Get RGB values from the texture
+            rgb_value = biome_texture_flipped[y_flipped, x, :3]  # Get only RGB channels
+            
+            # Convert to 0-255 scale if needed
+            if rgb_value.max() <= 1.0:
+                rgb_value = rgb_value * 255.0
+                
+            # Find the closest biome
+            biome = find_closest_biome(rgb_value)
+            
+            # Assign biome to tile
+            tiles[i]["biome"] = biome
+            biome_count[biome] += 1
+            
+            # Debug - log some samples
+            if i < 5 or i % 100 == 0:
+                print(f"Tile {i}: color RGB={rgb_value}, assigned biome={biome}")
+        
+        # Print biome distribution
+        print("\nBiome distribution:")
+        total_tiles = len(tiles)
+        for biome, count in sorted(biome_count.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_tiles) * 100
+            print(f"{biome}: {count} tiles ({percentage:.1f}%)")
+        
+        print(f"Assigned biomes from texture file '{ENV_TEXTURE_FILE}'")
+        return tiles
+    
+    except Exception as e:
+        print(f"Error assigning biomes: {e}")
+        import traceback
+        traceback.print_exc()
+        return tiles
+
+def visualize_biome_map(voronoi_data, tiles, polygon_centers):
+    """
+    Visualize the biome map with different colors for different biome types.
     """
     vertices = np.array(voronoi_data["vertices"])
     edges = voronoi_data["edges"]
     
     # Create a figure and axis
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig, ax = plt.subplots(figsize=(16, 12))
     
-    # Colors for different tile types
-    colors = {
-        "land": "forestgreen",
-        "sea": "steelblue"
+    # Colors for different biome types
+    # Use the same colors as defined in BIOME_COLORS but normalized to 0-1 scale
+    biome_plot_colors = {
+        biome: [r/255.0, g/255.0, b/255.0] for biome, (r, g, b) in BIOME_COLORS.items()
     }
     
-    # Load texture for background if available
-    texture_background = None
-    if os.path.exists(TEXTURE_FILE):
+    # Add a default color for unknown biomes
+    biome_plot_colors["Unknown"] = [0.5, 0.5, 0.5]  # Gray
+    biome_plot_colors["sea"] = [0.6, 0.8, 1.0]      # Light blue for sea
+    
+    # Load biome texture for background if available
+    biome_background = None
+    if os.path.exists(ENV_TEXTURE_FILE):
         try:
-            texture = imread(TEXTURE_FILE)
-            
-            # Convert to grayscale if it's color
-            if len(texture.shape) == 3:
-                texture_gray = 0.2989 * texture[:,:,0] + 0.5870 * texture[:,:,1] + 0.1140 * texture[:,:,2]
-            else:
-                texture_gray = texture
-            
-            # Normalize if needed
-            if texture_gray.max() > 1.0:
-                texture_gray = texture_gray / 255.0
-                
-            # Flip the texture vertically to match our coordinate system
-            texture_background = np.flipud(texture_gray)
-            texture_background = texture_gray
+            biome_texture = imread(ENV_TEXTURE_FILE)
+            biome_background = biome_texture
         except Exception as e:
-            print(f"Warning: Could not load texture for background: {e}")
+            print(f"Warning: Could not load biome texture for background: {e}")
     
     # Plot the texture in the background if available
-    if texture_background is not None:
-        ax.imshow(texture_background, extent=[0, 1, 0, 1], alpha=0.3, cmap='gray')
+    if biome_background is not None:
+        ax.imshow(biome_background, extent=[0, 1, 0, 1], alpha=0.3)
     
-    # Plot the polygons with land/sea colors
-    land_count = 0
-    sea_count = 0
+    # Plot the polygons with biome colors
+    biome_count = defaultdict(int)
     
     for i, tile in enumerate(tiles):
         # Get all vertices for this polygon
@@ -347,114 +465,54 @@ def visualize_land_sea_map(voronoi_data, tiles, polygon_centers):
         sorted_vertices = sorted(polygon_vertices, 
                             key=lambda v: np.arctan2(v[1] - center[1], v[0] - center[0]))
         
-        # Create a polygon patch
-        color = colors.get(tile["type"], "gray")
-        polygon_path = plt.Polygon(sorted_vertices, 
-                                 fill=True, 
-                                 color=color, 
-                                 alpha=0.7, 
-                                 edgecolor='black', 
-                                 linewidth=1)
-        ax.add_patch(polygon_path)
-        
-        # Count land vs sea
-        if tile["type"] == "land":
-            land_count += 1
+        # Determine color based on biome or sea
+        if tile["type"] == "sea":
+            color = biome_plot_colors["sea"]
+            biome_count["sea"] += 1
         else:
-            sea_count += 1
+            biome = tile["biome"]
+            color = biome_plot_colors.get(biome, biome_plot_colors["Unknown"])
+            biome_count[biome] += 1
         
-        # Add tile name as text (smaller font for readability)
-        ax.text(center[0], center[1], tile["name"], 
-               ha='center', va='center', fontsize=6,
-               color='white' if tile["type"] == "sea" else 'black')
+        # Create a polygon patch
+        polygon_path = plt.Polygon(sorted_vertices, 
+                                  fill=True, 
+                                  color=color, 
+                                  alpha=0.7, 
+                                  edgecolor='black', 
+                                  linewidth=0.5)
+        ax.add_patch(polygon_path)
     
     # Set axis limits
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1])
     
-    # Add title and legend
-    ax.set_title(f'Land-Sea Map (Threshold: {LAND_SEA_THRESHOLD}, Land: {land_count}, Sea: {sea_count})')
+    # Add title
+    ax.set_title('Biome Map')
     
     # Create legend patches
     import matplotlib.patches as mpatches
-    legend_patches = [mpatches.Patch(color=color, label=f"{tile_type} ({land_count if tile_type=='land' else sea_count})") 
-                     for tile_type, color in colors.items()]
-    ax.legend(handles=legend_patches, loc='upper right')
+    
+    # Sort biomes by count
+    sorted_biomes = sorted(biome_count.items(), key=lambda x: x[1], reverse=True)
+    
+    # Create legend with top 15 biomes (to avoid overcrowding)
+    legend_patches = []
+    for biome, count in sorted_biomes[:15]:
+        color = biome_plot_colors.get(biome, biome_plot_colors["Unknown"])
+        legend_patches.append(mpatches.Patch(color=color, label=f"{biome} ({count})"))
+    
+    ax.legend(handles=legend_patches, loc='upper right', fontsize='small')
     
     # Show the plot
     plt.tight_layout()
-    plt.savefig('land_sea_map.png', dpi=300)
-    
-    # Create a debug visualization showing the original texture and the resulting map
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-    
-    # Plot original texture
-    if texture_background is not None:
-        ax1.imshow(texture_background, cmap='gray')
-        ax1.set_title("Original Texture (Flipped)")
-        ax1.axis('off')
-    
-    # Plot tile centers colored by land/sea
-    land_centers = [center for center, tile in zip(polygon_centers, tiles) if tile["type"] == "land"]
-    sea_centers = [center for center, tile in zip(polygon_centers, tiles) if tile["type"] == "sea"]
-    
-    if land_centers:
-        land_centers = np.array(land_centers)
-        ax1.scatter(land_centers[:, 0] * (texture_background.shape[1] - 1), 
-                  land_centers[:, 1] * (texture_background.shape[0] - 1), 
-                  c='green', alpha=0.5, s=10)
-    
-    if sea_centers:
-        sea_centers = np.array(sea_centers)
-        ax1.scatter(sea_centers[:, 0] * (texture_background.shape[1] - 1), 
-                  sea_centers[:, 1] * (texture_background.shape[0] - 1), 
-                  c='blue', alpha=0.5, s=10)
-    
-    # Plot resulting map
-    for i, tile in enumerate(tiles):
-        # Get all vertices for this polygon
-        vertex_indices = set()
-        for edge_idx in tile["edges"]:
-            edge = edges[edge_idx]
-            vertex_indices.add(edge[0])
-            vertex_indices.add(edge[1])
-        
-        # Get vertex coordinates
-        polygon_vertices = [vertices[idx] for idx in vertex_indices]
-        
-        # Sort vertices around the center
-        center = polygon_centers[i]
-        sorted_vertices = sorted(polygon_vertices, 
-                            key=lambda v: np.arctan2(v[1] - center[1], v[0] - center[0]))
-        
-        # Create a polygon patch
-        color = colors.get(tile["type"], "gray")
-        polygon_path = plt.Polygon(sorted_vertices, 
-                                 fill=True, 
-                                 color=color, 
-                                 alpha=0.7, 
-                                 edgecolor='black', 
-                                 linewidth=0.5)
-        ax2.add_patch(polygon_path)
-    
-    ax2.set_xlim([0, 1])
-    ax2.set_ylim([0, 1])
-    ax2.set_title("Resulting Land-Sea Map")
-    
-    plt.tight_layout()
-    plt.savefig('texture_vs_map_debug.png', dpi=300)
+    plt.savefig('biome_map.png', dpi=300)
+    print("Biome map visualization saved as 'biome_map.png'")
 
 
 # Load the Voronoi data from JSON
 with open('voronoi_data.json', 'r') as f:
     voronoi_data = json.load(f)
-
-# Get vertices
-vertices = np.array(voronoi_data["vertices"])
-points = np.array(voronoi_data["points"])
-
-# Recreate Voronoi object
-vor = Voronoi(points)
 
 # Extract polygons as edge indices
 polygons, edge_to_cells = extract_voronoi_polygons(voronoi_data)
@@ -467,6 +525,9 @@ polygon_centers = get_polygon_centers(voronoi_data, polygons)
 
 # Assign land/sea types from texture
 tiles = assign_land_sea_from_texture(tiles, polygon_centers)
+
+# Assign biomes from texture
+tiles = assign_biomes_from_texture(tiles, polygon_centers)
 
 # Create polygon data
 polygon_data = {
@@ -485,14 +546,12 @@ with open('land_sea_map.json', 'w') as f:
 
 print(f"Created {len(polygons)} polygons")
 print(f"Saved polygon data to 'polygons.json'")
-print(f"Saved land-sea map to 'land_sea_map.json'")
+print(f"Saved land-sea map with biome data to 'land_sea_map.json'")
 
-# Visualize the land-sea map
+# Generate visualizations
 try:
-    visualize_land_sea_map(voronoi_data, tiles, polygon_centers)
-    print("Land-sea map visualization saved as 'land_sea_map.png'")
-    print("Debug visualization saved as 'texture_vs_map_debug.png'")
+    visualize_biome_map(voronoi_data, tiles, polygon_centers)
 except Exception as e:
-    print(f"Visualization error: {e}")
+    print(f"Biome visualization error: {e}")
     import traceback
     traceback.print_exc()

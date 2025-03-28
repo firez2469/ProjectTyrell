@@ -8,8 +8,12 @@ public class Tile : MonoBehaviour
     public string Id;
     public List<string> neighbors;
     public bool isLand;
+    public TileType type;
     public Color disabledColor;
     public Vector3[] outlinePoints;
+    public string biome;
+
+    public enum TileType { Land, Sea, City, Coast, River, Hills, Mountains }
 
     // Reference to this tile's line renderer
     [HideInInspector]
@@ -19,28 +23,7 @@ public class Tile : MonoBehaviour
 
     private void Start()
     {
-        // Get the outline points from the corresponding MeshTile if not already set
-       /* if (outlinePoints == null || outlinePoints.Length == 0)
-        {
-            MapMeshGeneration mapGenerator = FindFirstObjectByType<MapMeshGeneration>();
-            if (mapGenerator != null)
-            {
-                foreach (var tile in mapGenerator.GetTiles())
-                {
-                    if (tile.Value.name == Name)
-                    {
-                        outlinePoints = tile.Value.outlinePoints;
 
-                        // If we didn't get a LineRenderer from the mesh generation, create one now
-                        if (tileLineRenderer == null)
-                        {
-                            SetupLineRenderer(mapGenerator);
-                        }
-                        break;
-                    }
-                }
-            }
-        }*/
     }
 
     private void SetupLineRenderer(MapMeshGeneration mapGenerator)
@@ -91,38 +74,7 @@ public class Tile : MonoBehaviour
 
     public void Show()
     {
-        /*if (MapMeshGeneration.highlightLineRenderer != null && outlinePoints != null && outlinePoints.Length > 0)
-        {
-            // Set the highlight line renderer to outline this tile
-            MapMeshGeneration.highlightLineRenderer.positionCount = outlinePoints.Length;
-            MapMeshGeneration.highlightLineRenderer.SetPositions(outlinePoints);
-
-            // Set the appropriate color based on tile type
-            Gradient gradient = new Gradient();
-            GradientColorKey[] colorKeys = new GradientColorKey[1];
-            GradientAlphaKey[] alphaKeys = new GradientAlphaKey[1];
-
-            // Get reference to the map generator to access color settings
-            MapMeshGeneration mapGenerator = FindFirstObjectByType<MapMeshGeneration>();
-            if (mapGenerator != null)
-            {
-                Color highlightColor = isLand ? mapGenerator.highlightLandColor : mapGenerator.highlightSeaColor;
-                colorKeys[0] = new GradientColorKey(highlightColor, 0f);
-                alphaKeys[0] = new GradientAlphaKey(1f, 0f);
-                gradient.SetKeys(colorKeys, alphaKeys);
-                MapMeshGeneration.highlightLineRenderer.colorGradient = gradient;
-            }
-
-            MapMeshGeneration.highlightLineRenderer.gameObject.SetActive(true);
-            isHighlighted = true;
-
-            // Make the tile's own line renderer temporarily invisible while highlighted
-            if (tileLineRenderer != null)
-            {
-                tileLineRenderer.enabled = false;
-            }
-        }
-    */}
+    }
 
     public void Hide()
     {

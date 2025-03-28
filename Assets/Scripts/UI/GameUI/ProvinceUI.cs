@@ -41,8 +41,7 @@ public class ProvinceUI : MonoBehaviour
         {
             this.title.text = active.Name;
             this.description.text = active.Description;
-            string type = (active.isLand ? "land" : "sea");
-            this.image.sprite = ProvinceArt.Where(this.artMaps, type);
+            this.image.sprite = ProvinceArt.Where(this.artMaps, active.type);
         }
         
     }
@@ -65,10 +64,10 @@ public class ProvinceUI : MonoBehaviour
     [System.Serializable]
     public class ProvinceArt
     {
-        public string type;
+        public Tile.TileType type;
         public Sprite image;
 
-        public static Sprite Where(ProvinceArt[] mappings, string type)
+        public static Sprite Where(ProvinceArt[] mappings, Tile.TileType type)
         {
             for(int i =0; i < mappings.Length; i++)
             {

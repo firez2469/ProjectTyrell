@@ -16,7 +16,7 @@ WEIGHT_IMAGE_PATH = 'maps\TyrrellMapWeightMap.png'  # Your weight map (if availa
 MIN_DISTANCE = 0.0005  # Minimum distance between points (normalized units)
 MAX_ATTEMPTS = 10  # Maximum attempts to place a point
 ADD_CORNERS = True   # Add corner points to ensure full coverage
-EDGE_POINTS_LIMIT = 1000  # Maximum number of edge points to use
+EDGE_POINTS_LIMIT = 800  # Maximum number of edge points to use
 
 # Function to detect edges in the land map image
 def detect_edges(image_path):

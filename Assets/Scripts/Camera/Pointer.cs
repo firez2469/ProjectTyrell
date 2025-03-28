@@ -68,8 +68,8 @@ public class Pointer : MonoBehaviour
         selector.transform.localScale = new Vector3(-12, 1, 7);
         selector.positionCount = outline.Length;
         selector.SetPositions(outline);
-        selector.startColor = (tile.isLand? Color.green : Color.blue);
-        selector.endColor = (tile.isLand ? Color.green : Color.blue);
+        selector.startColor = (tile.type==Tile.TileType.Land? Color.green : Color.blue);
+        selector.endColor = (tile.type == Tile.TileType.Land ? Color.green : Color.blue);
         Selected = tile;
     }
 }

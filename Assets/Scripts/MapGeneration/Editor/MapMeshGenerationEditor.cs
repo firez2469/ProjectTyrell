@@ -3,6 +3,7 @@ using UnityEditor;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor.SceneManagement;
 using Unity.VisualScripting;
 
@@ -18,8 +19,10 @@ public class MapMeshGenerationEditor : Editor
     private SerializedProperty worldLineColorProperty;
     private SerializedProperty highlightLandColorProperty;
     private SerializedProperty highlightSeaColorProperty;
+    private SerializedProperty biomeColorsProperty;
 
     private bool showDebugOptions = false;
+    private bool showBiomeColors = false;
 
     private void OnEnable()
     {
@@ -33,6 +36,7 @@ public class MapMeshGenerationEditor : Editor
         worldLineColorProperty = serializedObject.FindProperty("worldLineColor");
         highlightLandColorProperty = serializedObject.FindProperty("highlightLandColor");
         highlightSeaColorProperty = serializedObject.FindProperty("highlightSeaColor");
+        biomeColorsProperty = serializedObject.FindProperty("biomeColors");
     }
 
     public override void OnInspectorGUI()
@@ -51,6 +55,22 @@ public class MapMeshGenerationEditor : Editor
         EditorGUILayout.PropertyField(worldLineColorProperty, new GUIContent("World Line Color", "Color of the global outline for all tiles"));
         EditorGUILayout.PropertyField(highlightLandColorProperty, new GUIContent("Highlight Land Color", "Color of the highlight for land tiles"));
         EditorGUILayout.PropertyField(highlightSeaColorProperty, new GUIContent("Highlight Sea Color", "Color of the highlight for sea tiles"));
+
+        // Biome color settings
+        EditorGUILayout.Space(10);
+        showBiomeColors = EditorGUILayout.Foldout(showBiomeColors, "Biome Color Settings", true);
+        if (showBiomeColors)
+        {
+            EditorGUILayout.PropertyField(biomeColorsProperty, new GUIContent("Biome Colors", "Color mappings for different biome types"), true);
+
+            EditorGUILayout.HelpBox("Define color mappings for each biome type. Any undefined biomes will use a default gray color.", MessageType.Info);
+
+            // Button to extract biome types from JSON
+            if (GUILayout.Button("Extract Biome Types from JSON", GUILayout.Height(25)))
+            {
+                ExtractBiomeTypesFromJson();
+            }
+        }
 
         EditorGUILayout.HelpBox("If no Tile Data Asset is assigned, the script will try to load 'tile_data.json' from Resources folder", MessageType.Info);
 
@@ -120,9 +140,114 @@ public class MapMeshGenerationEditor : Editor
         }
     }
 
+    private void ExtractBiomeTypesFromJson()
+    {
+        MapMeshGeneration mapGenerator = (MapMeshGeneration)target;
+
+        if (mapGenerator.tileDataAsset == null)
+        {
+            EditorUtility.DisplayDialog("Error", "No tile data asset assigned. Please assign a TextAsset containing tile data first.", "OK");
+            return;
+        }
+
+        try
+        {
+            // Parse the tile data
+            var tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(mapGenerator.tileDataAsset.text);
+
+            if (tileDataList == null || tileDataList.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Error", "Failed to parse tile data or no tiles found.", "OK");
+                return;
+            }
+
+            // Extract unique biome types
+            HashSet<string> biomeTypes = new HashSet<string>();
+            foreach (var tile in tileDataList)
+            {
+                if (!string.IsNullOrEmpty(tile.biome))
+                {
+                    biomeTypes.Add(tile.biome);
+                }
+            }
+
+            if (biomeTypes.Count == 0)
+            {
+                EditorUtility.DisplayDialog("Info", "No biome information found in the tile data.", "OK");
+                return;
+            }
+
+            // Get the existing biome colors
+            serializedObject.Update();
+            SerializedProperty biomeColorsArray = biomeColorsProperty;
+
+            // Create map of existing biome colors
+            Dictionary<string, Color> existingBiomeColors = new Dictionary<string, Color>();
+            for (int i = 0; i < biomeColorsArray.arraySize; i++)
+            {
+                SerializedProperty biomeEntry = biomeColorsArray.GetArrayElementAtIndex(i);
+                SerializedProperty biomeName = biomeEntry.FindPropertyRelative("biomeName");
+                SerializedProperty biomeColor = biomeEntry.FindPropertyRelative("color");
+
+                if (!string.IsNullOrEmpty(biomeName.stringValue))
+                {
+                    existingBiomeColors[biomeName.stringValue] = biomeColor.colorValue;
+                }
+            }
+
+            // Resize the array to fit all biome types
+            biomeColorsArray.arraySize = biomeTypes.Count;
+
+            // Add or update biome colors
+            int index = 0;
+
+            // Define rainbow colors for new biomes
+            Color[] rainbowColors = {
+                new Color(1.0f, 0.0f, 0.0f), // Red
+                new Color(1.0f, 0.5f, 0.0f), // Orange
+                new Color(1.0f, 1.0f, 0.0f), // Yellow
+                new Color(0.0f, 1.0f, 0.0f), // Green
+                new Color(0.0f, 1.0f, 1.0f), // Cyan
+                new Color(0.0f, 0.0f, 1.0f), // Blue
+                new Color(0.5f, 0.0f, 0.5f)  // Purple
+            };
+
+            foreach (string biomeType in biomeTypes.OrderBy(b => b))
+            {
+                SerializedProperty biomeEntry = biomeColorsArray.GetArrayElementAtIndex(index);
+                SerializedProperty biomeName = biomeEntry.FindPropertyRelative("biomeName");
+                SerializedProperty biomeColor = biomeEntry.FindPropertyRelative("color");
+
+                biomeName.stringValue = biomeType;
+
+                // Use existing color if available, otherwise assign a new color
+                if (existingBiomeColors.TryGetValue(biomeType, out Color existingColor))
+                {
+                    biomeColor.colorValue = existingColor;
+                }
+                else
+                {
+                    // Assign a color from the rainbow palette based on the index
+                    biomeColor.colorValue = rainbowColors[index % rainbowColors.Length];
+                }
+
+                index++;
+            }
+
+            serializedObject.ApplyModifiedProperties();
+
+            EditorUtility.DisplayDialog("Success", $"Extracted {biomeTypes.Count} unique biome types from tile data.", "OK");
+        }
+        catch (Exception e)
+        {
+            EditorUtility.DisplayDialog("Error", $"Failed to extract biome types: {e.Message}", "OK");
+            Debug.LogException(e);
+        }
+    }
+
     private void GenerateMeshes()
     {
-        
+
         MapMeshGeneration mapGenerator = (MapMeshGeneration)target;
         mapGenerator.transform.localScale = Vector3.one;
         // Check if polygon data is assigned
@@ -162,11 +287,11 @@ public class MapMeshGenerationEditor : Editor
         }
 
         mapGenerator.transform.localScale = new Vector3(-12, -1, 7);
-        for (var i= 0; i < mapGenerator.transform.childCount;i++)
+        for (var i = 0; i < mapGenerator.transform.childCount; i++)
         {
             mapGenerator.transform.GetChild(i).transform.localPosition = new Vector3(-0.5f, 0, -0.5f);
         }
-        
+
     }
 
     private bool ValidatePolygonData(TextAsset polygonDataAsset)
@@ -183,7 +308,7 @@ public class MapMeshGenerationEditor : Editor
             // Try to parse with Newtonsoft.Json
             try
             {
-                var polygonData = JsonConvert.DeserializeObject<PolygonData>(polygonDataAsset.text);
+                var polygonData = JsonConvert.DeserializeObject<MapData.PolygonData>(polygonDataAsset.text);
 
                 if (polygonData == null)
                 {
@@ -264,7 +389,7 @@ public class MapMeshGenerationEditor : Editor
             // Try to parse with Newtonsoft.Json
             try
             {
-                var tileDataList = JsonConvert.DeserializeObject<List<TileData>>(tileDataAsset.text);
+                var tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(tileDataAsset.text);
 
                 if (tileDataList == null)
                 {
@@ -272,7 +397,17 @@ public class MapMeshGenerationEditor : Editor
                     return false;
                 }
 
-                Debug.Log($"Tile data JSON validation successful: {tileDataList.Count} tiles found");
+                // Count biomes if available
+                int biomesFound = 0;
+                foreach (var tile in tileDataList)
+                {
+                    if (!string.IsNullOrEmpty(tile.biome))
+                    {
+                        biomesFound++;
+                    }
+                }
+
+                Debug.Log($"Tile data JSON validation successful: {tileDataList.Count} tiles found, {biomesFound} with biome information");
                 return true;
             }
             catch (JsonException jsonEx)

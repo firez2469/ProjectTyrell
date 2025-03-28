@@ -4,33 +4,40 @@ using System.IO;
 using System;
 using Newtonsoft.Json;
 
-[Serializable]
-public class PolygonData
+// Define these in a namespace or static class to ensure accessibility
+namespace MapData
 {
-    [JsonProperty("edges")]
-    public List<List<int>> edges;
+    [Serializable]
+    public class PolygonData
+    {
+        [JsonProperty("edges")]
+        public List<List<int>> edges;
 
-    [JsonProperty("vertices")]
-    public List<List<float>> vertices;
+        [JsonProperty("vertices")]
+        public List<List<float>> vertices;
 
-    [JsonProperty("polygons")]
-    public List<List<int>> polygons;
-}
+        [JsonProperty("polygons")]
+        public List<List<int>> polygons;
+    }
 
-[Serializable]
-public class TileData
-{
-    [JsonProperty("name")]
-    public string name;
+    [Serializable]
+    public class TileData
+    {
+        [JsonProperty("name")]
+        public string name;
 
-    [JsonProperty("edges")]
-    public List<int> edges;
+        [JsonProperty("edges")]
+        public List<int> edges;
 
-    [JsonProperty("type")]
-    public string type;
+        [JsonProperty("type")]
+        public string type;
 
-    [JsonProperty("neighbors")]
-    public List<string> neighbors;
+        [JsonProperty("biome")]
+        public string biome;
+
+        [JsonProperty("neighbors")]
+        public List<string> neighbors;
+    }
 }
 
 public class MapMeshGeneration : MonoBehaviour
@@ -47,20 +54,52 @@ public class MapMeshGeneration : MonoBehaviour
     [SerializeField] public Color landLineColor = new Color(0.2f, 0.8f, 0.2f);
     [SerializeField] public Color seaLineColor = new Color(0.2f, 0.2f, 0.8f);
 
+    // Optional - Dictionary mapping biome names to colors for visualization
+    [SerializeField] public BiomeColorMapping[] biomeColors;
+
+    // Class to hold biome color mapping in inspector
+    [Serializable]
+    public class BiomeColorMapping
+    {
+        public string biomeName;
+        public Color color = Color.white;
+    }
+
     // Static reference to the highlight line renderer
     public static LineRenderer highlightLineRenderer;
     private LineRenderer worldLineRenderer;
 
     private Dictionary<string, MeshTile> tiles = new Dictionary<string, MeshTile>();
     private Dictionary<int, Vector3> vertexMap = new Dictionary<int, Vector3>();
+    private Dictionary<string, Color> biomeColorMap = new Dictionary<string, Color>();
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        // You could load the TextAsset here if you want automatic loading
-        // TextAsset polygonDataAsset = Resources.Load<TextAsset>("polygons");
-        // if (polygonDataAsset != null)
-        //     Load(polygonDataAsset);
+        // Initialize biome color mapping
+        InitializeBiomeColors();
+    }
+
+    private void InitializeBiomeColors()
+    {
+        biomeColorMap.Clear();
+
+        if (biomeColors != null)
+        {
+            foreach (var mapping in biomeColors)
+            {
+                if (!string.IsNullOrEmpty(mapping.biomeName))
+                {
+                    biomeColorMap[mapping.biomeName] = mapping.color;
+                }
+            }
+        }
+
+        // Add default color for unknown biomes
+        if (!biomeColorMap.ContainsKey("Unknown"))
+        {
+            biomeColorMap["Unknown"] = Color.gray;
+        }
     }
 
     // Update is called once per frame
@@ -79,11 +118,14 @@ public class MapMeshGeneration : MonoBehaviour
 
         try
         {
+            // Initialize biome color mapping
+            InitializeBiomeColors();
+
             // Log the first part of the JSON to debug
             Debug.Log($"Parsing polygon JSON data (first 100 chars): {polygonDataAsset.text.Substring(0, Mathf.Min(100, polygonDataAsset.text.Length))}...");
 
             // Parse the polygon JSON data using Newtonsoft.Json
-            PolygonData polygonData = JsonConvert.DeserializeObject<PolygonData>(polygonDataAsset.text);
+            MapData.PolygonData polygonData = JsonConvert.DeserializeObject<MapData.PolygonData>(polygonDataAsset.text);
 
             // Check if polygonData is null or its properties are null
             if (polygonData == null)
@@ -113,7 +155,7 @@ public class MapMeshGeneration : MonoBehaviour
             Debug.Log($"Successfully parsed polygon data with {polygonData.vertices.Count} vertices, {polygonData.edges.Count} edges, and {polygonData.polygons.Count} polygons");
 
             // Use the tile data asset if provided, otherwise try to load from Resources
-            List<TileData> tileDataList = new List<TileData>();
+            List<MapData.TileData> tileDataList = new List<MapData.TileData>();
 
             if (tileDataAsset != null)
             {
@@ -122,16 +164,25 @@ public class MapMeshGeneration : MonoBehaviour
                     Debug.Log($"Parsing tile data JSON (first 100 chars): {tileDataAsset.text.Substring(0, Mathf.Min(100, tileDataAsset.text.Length))}...");
 
                     // Parse the tile data using Newtonsoft.Json
-                    tileDataList = JsonConvert.DeserializeObject<List<TileData>>(tileDataAsset.text);
+                    tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(tileDataAsset.text);
 
                     if (tileDataList == null)
                     {
                         Debug.LogError("Failed to parse tile data - returned null list");
-                        tileDataList = new List<TileData>();
+                        tileDataList = new List<MapData.TileData>();
                     }
                     else
                     {
-                        Debug.Log($"Loaded {tileDataList.Count} tiles from tile data JSON");
+                        // Log biome information if available
+                        int biomesFound = 0;
+                        foreach (var tile in tileDataList)
+                        {
+                            if (!string.IsNullOrEmpty(tile.biome))
+                            {
+                                biomesFound++;
+                            }
+                        }
+                        Debug.Log($"Loaded {tileDataList.Count} tiles from tile data JSON with {biomesFound} containing biome information");
                     }
                 }
                 catch (Exception e)
@@ -142,7 +193,7 @@ public class MapMeshGeneration : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning("Tile data JSON not found, tiles will default to Land type");
+                Debug.LogWarning("Tile data JSON not found, tiles will default to Land type and Unknown biome");
             }
 
             // Convert vertices from 2D to 3D
@@ -197,11 +248,11 @@ public class MapMeshGeneration : MonoBehaviour
         Debug.Log($"Converted {vertexMap.Count} vertices to 3D");
     }
 
-    private void CreateMeshTiles(PolygonData polygonData, List<TileData> tileDataList)
+    private void CreateMeshTiles(MapData.PolygonData polygonData, List<MapData.TileData> tileDataList)
     {
         tiles.Clear();
 
-        Dictionary<string, TileData> tileDataMap = new Dictionary<string, TileData>();
+        Dictionary<string, MapData.TileData> tileDataMap = new Dictionary<string, MapData.TileData>();
         foreach (var tileData in tileDataList)
         {
             if (!string.IsNullOrEmpty(tileData.name))
@@ -221,17 +272,19 @@ public class MapMeshGeneration : MonoBehaviour
             tile.name = tileName;
             tile.id = i.ToString();
 
-            // Set tile type and neighbors based on tile data if available
-            if (tileDataMap.TryGetValue(tileName, out TileData tileData))
+            // Set tile type, biome, and neighbors based on tile data if available
+            if (tileDataMap.TryGetValue(tileName, out MapData.TileData tileData))
             {
                 tile.type = tileData.type.ToLower() == "sea" ? MeshTileType.Sea : MeshTileType.Land;
+                tile.biome = !string.IsNullOrEmpty(tileData.biome) ? tileData.biome : "Unknown";
                 tile.neighbors = tileData.neighbors ?? new List<string>();
                 tile.tileEdges = tileData.edges ?? new List<int>();
             }
             else
             {
-                // Default to Land if no type information is available
+                // Default to Land and Unknown biome if no type information is available
                 tile.type = MeshTileType.Land;
+                tile.biome = "Unknown";
                 tile.neighbors = new List<string>();
                 tile.tileEdges = new List<int>();
             }
@@ -504,11 +557,12 @@ public class MapMeshGeneration : MonoBehaviour
             tileComponent.Name = tile.name;
             tileComponent.Description = tile.description;
             tileComponent.Id = tile.id;
+            tileComponent.biome = tile.biome; // Add biome information
             tileComponent.neighbors = tile.neighbors;
-            tileComponent.isLand = tile.type == MeshTileType.Land;
+            tileComponent.isLand = MeshTileType.Land == tile.type;
+            tileComponent.type = (MeshTileType.Land == tile.type ? Tile.TileType.Land : Tile.TileType.Sea);
             tileComponent.outlinePoints = tile.outlinePoints;
-            print("Added " + tile.outlinePoints.Length + " points");
-            
+            print("Added " + tile.outlinePoints.Length + " points to " + tile.name + " with biome " + tile.biome);
         }
 
         // Set all points for the world line renderer
@@ -525,11 +579,12 @@ public class MapMeshGeneration : MonoBehaviour
         public string id;
         public string description;
         public MeshTileType type;
+        public string biome; // Added biome field
         public List<string> neighbors;
         public List<int> tileEdges;
         public Mesh tileMesh;
         public Vector2 position;
-        public Vector3[] outlinePoints; // Added to store outline points
+        public Vector3[] outlinePoints; // Store outline points
     }
 
     public enum MeshTileType
@@ -541,5 +596,3 @@ public class MapMeshGeneration : MonoBehaviour
         return tiles;
     }
 }
-
-// Tile class is now defined in Tile.cs

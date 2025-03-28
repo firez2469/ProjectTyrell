@@ -29,7 +29,7 @@ Welcome to Tyrell! This is a game I've been wanting to develop for a while now, 
 - ✅ Create basic UI layout for game.
 
 2. Create Second Layer Structures
-- 🟥 Tile Enviornment (land, sea, coast, city, mountain, hills, forest)
+- 💻 Tile Enviornment (land, sea, coast, city, mountain, hills, forest)
 - 🟥 Tile Population
 - 🟥 Nation Definition in game. (name, id, leader, token nation focus tree)
 - 🟥 Tile controller (via nation id).
