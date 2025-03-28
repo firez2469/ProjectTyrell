@@ -9,21 +9,23 @@ Welcome to Tyrell! This is a game I've been wanting to develop for a while now, 
 ## Development Setup
 **Unity Version:** 6000.0.35f1
 
-1. Upon installation open the `SampleScene.scene.`
-2. Click on MapGenerator object and click `Generate`. Should take a few seconds-minute to load (depending on tile count) then click on `Place`. This will place all the tiles. In future versions we will commit to a tile count setup and this step wont be necessary.
-3. Make sure if you choose to regenerate the map, that you delete everything inside of `Resources/Polygen`.
+1. Upon installation open the `Map1.scene`. The map should be generated.
+2. You may click on tiles in the game to see detail about them, feel free to edit.
+3. In order to create a new random tile map based on the borders for the world of Tyrell, open the `Tools` menu in terminal and run `main.py`. Feel free to modify settings withing:
+    - `vornoi.py` to control the number/concentration of tiles. I have made custom generation maps based on the maps on the tyrell website to detect land/sea and to weigh point generation around areas of interest. (The weighing can be found in `tools/maps/TyrellMapWeights.png`).
 
 ## Current Project Focus (Phase 1)
 ✅=Complete<br>
 💻=In development<br>
 🟥=Incomplete<br>
 
-1. Finish the map view:
+1. Finish the map view:✅
 
 - ✅ Lay out tiles over a 3D map such that is matches land/sea over the map of Tyrell.
 - ✅ Allow for tile selection via Raycasting.
-- 💻 Create UI to detail information about a tile.
-- 💻 Create Camera controls to view tiles and loop (similar to that of HOI4).
+- ✅ Create UI to detail information about a tile.
+- ✅ Create Camera controls to view tiles.
+- ✅ Create basic UI layout for game.
 
 2. Create core back-end:
 - Resources
