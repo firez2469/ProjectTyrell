@@ -58,8 +58,6 @@ public class Pointer : MonoBehaviour
             }
             
         }
-       
-            
     }
 
     private void Assign(Tile tile)
