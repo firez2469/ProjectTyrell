@@ -4,6 +4,7 @@ Welcome to Tyrell! This is a game I've been wanting to develop for a while now, 
 ## Inspirations for this Project
 - **Hearts of Iron IV:** Though perhaps designed for a very different world and era, HOI4 and Europa Universalis 4 introduce concepts like national focuses, irregular tile based maps and the idea of building up industry to support the military. It also introduces the concept of asymmetrical warfare where one nation may be far stronger than the rest or function entirely different than the rest. This dynamic requiring opponents to both understand the weaknessess and the strengths of their opponents.
 - **Civilization Series:** Introduces concepts of research and a simpler combat system than paradox games. Simplifying armies into generalized units. Utilizing simple passive abilities/buffs/levels to specify how effective units are.
+- **Minds of Nations:** An mmo where players can build nations expanding slowly then fighting. Its basically a more philosophical slow running version of HOI with very basic combat, but utilizes a strategic map system similar to HOI that is easier for me to implement.
 
 
 ## Development Setup
@@ -27,17 +28,24 @@ Welcome to Tyrell! This is a game I've been wanting to develop for a while now, 
 - ✅ Create Camera controls to view tiles.
 - ✅ Create basic UI layout for game.
 
-2. Create core back-end:
-- Resources
-- Units
-- Buildings
-- Tiles
-- Nation
-- Bind these back-end systems into the map.
+2. Create Second Layer Structures
+- 🟥 Tile Enviornment (land, sea, coast, city, mountain, hills, forest)
+- 🟥 Tile Population
+- 🟥 Nation Definition in game. (name, id, leader, token nation focus tree)
+- 🟥 Tile controller (via nation id).
 
-3. Create visual tints for map:
-- Tint for nations
-- Tint for alliances
-- Tint for Resources?
-- Create UI for tints.
-- Allow right click over tint for nation information.
+3. Develop dynamic asset loading system:
+- 🟥 Load tile information by Json
+- 🟥 Load image/icon art via Json
+- 🟥 Load nation information by Json
+
+4. Create DB for info loading
+- 🟥 DB communication (creation, deletion, push/pull)
+- 🟥 Live updates to tile information
+- 🟥 Live updates to nation
+
+5. Enhance Tile definition
+- 🟥 Buildings on Tiles
+- 🟥 Units on Tiles
+
+...
