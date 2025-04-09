@@ -1,10 +1,9 @@
-# Project Voskgardia
+# Project Tyrell
 Welcome to Tyrell! This is a game I've been wanting to develop for a while now, but never quite had the will to go through with it! The goal is simple. To develop a basic strategy game allowing multiple players to take the mantle of leaders on the brink of the Third Age. Navigate the political turmoil of the era, form alliances, build industry, prepare your forces and engage in a conflict that will stretch the world of Tyrell and bring forth the dawn of the third age of the world.
 
 ## Inspirations for this Project
 - **Hearts of Iron IV:** Though perhaps designed for a very different world and era, HOI4 and Europa Universalis 4 introduce concepts like national focuses, irregular tile based maps and the idea of building up industry to support the military. It also introduces the concept of asymmetrical warfare where one nation may be far stronger than the rest or function entirely different than the rest. This dynamic requiring opponents to both understand the weaknessess and the strengths of their opponents.
 - **Civilization Series:** Introduces concepts of research and a simpler combat system than paradox games. Simplifying armies into generalized units. Utilizing simple passive abilities/buffs/levels to specify how effective units are.
-- **Minds of Nations:** An mmo where players can build nations expanding slowly then fighting. Its basically a more philosophical slow running version of HOI with very basic combat, but utilizes a strategic map system similar to HOI that is easier for me to implement.
 
 
 ## Development Setup
