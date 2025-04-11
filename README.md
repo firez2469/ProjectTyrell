@@ -48,3 +48,7 @@ Welcome to Tyrell! Where magic slowly fades into the annals of history as the po
 - 🟥 Units on Tiles
 
 ...
+
+## Licensing
+[MIT Open Source License](./LICENSE)
+
