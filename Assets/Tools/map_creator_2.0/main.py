@@ -21,9 +21,10 @@ class PolygonWorker(QObject):
         super().__init__()
         self.editor = editor
     
-    def run(self):
-        self.editor._generate_polygons_threadsafe(self.progress, self.set_maximum)
+    def run(self, mode="replace"):
+        self.editor._generate_polygons_threadsafe(self.progress, self.set_maximum, mode)
         self.finished.emit()
+
 
 
 class MapEditor(QMainWindow):
@@ -76,6 +77,12 @@ class MapEditor(QMainWindow):
         gen_poly_btn.clicked.connect(self.generate_polygons)
         controls_layout.addWidget(gen_poly_btn)
         
+        # Generate new polygons button
+        gen_new_btn = QPushButton("Generate New Polygons")
+        gen_new_btn.clicked.connect(self.generate_new_polygons)
+        controls_layout.addWidget(gen_new_btn)
+
+
         # Delete point button
         delete_btn = QPushButton("Delete Selected Point")
         delete_btn.clicked.connect(self.delete_selected_point)
@@ -95,6 +102,12 @@ class MapEditor(QMainWindow):
         export_btn = QPushButton("Export JSON")
         export_btn.clicked.connect(self.export_json)
         controls_layout.addWidget(export_btn)
+
+        # Load JSON button
+        load_json_btn = QPushButton("Load JSON")
+        load_json_btn.clicked.connect(self.load_json)
+        controls_layout.addWidget(load_json_btn)
+
         
         # Info label
         self.info_label = QLabel("Load an image to start")
@@ -267,22 +280,53 @@ class MapEditor(QMainWindow):
         print(f"Created {len(self.tiles)} tiles")
 
 
-    def _generate_polygons_threadsafe(self, progress_callback, set_max_callback):
-        """Generate tiles async with a comprehensive approach that handles polygons of all sizes"""
+    def _generate_polygons_threadsafe(self, progress_callback, set_max_callback, mode="replace"):
         if len(self.points) < 3 or len(self.edges) < 3:
             QMessageBox.warning(self, "Warning", "Need at least 3 points and 3 edges to form polygons")
             return
-        
+
         print(f"Generating polygons from {len(self.points)} points and {len(self.edges)} edges")
+
+        # If appending, track used points
+        used_point_indices = set()
+        if mode == "append":
+            for tile in self.tiles:
+                used_point_indices.update(tile["points"])
+
         
         # Build the graph
+        # Build subgraph (only new parts of the graph if appending)
+        if mode == "append":
+            # Collect all edges used by existing tiles
+            used_edges = set()
+            used_point_indices = set()
+
+            for tile in self.tiles:
+                pts = tile["points"]
+                for i in range(len(pts)):
+                    a = pts[i]
+                    b = pts[(i + 1) % len(pts)]
+                    used_edges.add(tuple(sorted((a, b))))
+                used_point_indices.update(tile["points"])
+
+            filtered_edges = []
+            for e in self.edges:
+                edge_tuple = tuple(sorted(e))
+                if edge_tuple not in used_edges or e[0] not in used_point_indices or e[1] not in used_point_indices:
+                    filtered_edges.append(e)
+
+
+        else:
+            filtered_edges = self.edges
+
         adj_list = [[] for _ in range(len(self.points))]
-        for e in self.edges:
+        for e in filtered_edges:
             adj_list[e[0]].append(e[1])
             adj_list[e[1]].append(e[0])
-        
-        edge_set = set((min(e[0], e[1]), max(e[0], e[1])) for e in self.edges)
-        
+
+        edge_set = set((min(e[0], e[1]), max(e[0], e[1])) for e in filtered_edges)
+
+
         # Step 1: Find all simple polygons (those without internal edges)
         all_polygons = self.find_simple_polygons(adj_list, edge_set)
         print(f"Found {len(all_polygons)} candidate polygons")
@@ -348,9 +392,12 @@ class MapEditor(QMainWindow):
             else:
                 print("overwritten")
 
-        # ✅ Clear tiles before adding new ones
-        self.tiles = []
-        self.next_tile_id = 0
+        if mode == "replace":
+            self.tiles = []
+            self.next_tile_id = 0
+        else:
+            # "append" mode
+            existing_edgesets = {frozenset(tile["points"]) for tile in self.tiles}
 
         # ✅ Now create tiles from filtered polygons
         for poly in filtered_polygons:
@@ -366,7 +413,9 @@ class MapEditor(QMainWindow):
                     valid = False
                     break
 
-            if valid and len(edges_indices) > 2:
+            if mode == "append":
+                if frozenset(poly) in existing_edgesets:
+                    continue  # Skip if same polygon already exists
                 new_tile = {
                     "id": self.next_tile_id,
                     "name": f"Tile {self.next_tile_id}",
@@ -389,6 +438,7 @@ class MapEditor(QMainWindow):
         print(f"Created {len(self.tiles)} tiles")
         
         self._on_polygons_generated()
+    
     def generate_polygons(self):
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -408,135 +458,37 @@ class MapEditor(QMainWindow):
 
         self.thread.start()
 
-    def generate_polygons2(self):
-        """Generate tiles with a comprehensive approach that handles polygons of all sizes"""
-        if len(self.points) < 3 or len(self.edges) < 3:
-            QMessageBox.warning(self, "Warning", "Need at least 3 points and 3 edges to form polygons")
-            return
-        
-        print(f"Generating polygons from {len(self.points)} points and {len(self.edges)} edges")
-        
-
-
-        # Build the graph
-        adj_list = [[] for _ in range(len(self.points))]
-        for e in self.edges:
-            adj_list[e[0]].append(e[1])
-            adj_list[e[1]].append(e[0])
-        
-        edge_set = set((min(e[0], e[1]), max(e[0], e[1])) for e in self.edges)
-        
-        # Step 1: Find all simple polygons (those without internal edges)
-        all_polygons = self.find_simple_polygons(adj_list, edge_set)
-        print(f"Found {len(all_polygons)} candidate polygons")
-        
-        # Sort polygons by size (smallest first)
-        all_polygons.sort(key=len)
-        
-        # Filter out polygons that are covered by smaller ones
-        filtered_polygons = []
-        covered_edges = set()
-        
-        polygon_entries = []
-        polygon_shapes = []
-        
+    def generate_new_polygons(self):
         self.progress_bar.setVisible(True)
-        self.progress_bar.setMaximum(len(polygon_shapes))
         self.progress_bar.setValue(0)
+        self.progress_bar.setMaximum(0)  # Indeterminate until known
 
-        for poly in all_polygons:
-            coords = [self.points[i] for i in poly]
-            shape = ShapelyPolygon(coords)
-            if shape.is_valid and not shape.is_empty:
-                polygon_entries.append({
-                    "indices": poly,
-                    "polygon": shape
-                })
-                polygon_shapes.append(shape)
+        self.thread = QThread()
+        self.worker = PolygonWorker(self)
+        self.worker.moveToThread(self.thread)
 
-        spatial_index = STRtree(polygon_shapes)
+        self.worker.run_mode = "append"  # Custom flag for new behavior
+        self.thread.started.connect(lambda: self.worker.run(mode="append"))
 
-        filtered_polygons = []
-        used_indices = set()
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
 
-        for i, shape in enumerate(polygon_shapes):
-            self.progress_bar.setValue(i + 1)
-            QApplication.processEvents()
-            if i in used_indices:
-                continue
-            
-            poly = polygon_entries[i]["indices"]
+        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.set_maximum.connect(self.progress_bar.setMaximum)
 
-            if self.has_self_intersection(poly):
-                print(f"Skipping polygon {poly} due to self-intersection")
-                continue
+        self.thread.start()
 
-            overlaps = False
-            for j in spatial_index.query(shape):
-                if j == i:
-                    continue
-                candidate = polygon_shapes[j]
-                inter = shape.intersection(candidate)
-                if not inter.equals(shape.boundary) and not inter.equals(candidate.boundary):
-                    if inter.area > 1e-6 and j in used_indices:
-                        overlaps = True
-                        break
-
-            if not overlaps:
-                filtered_polygons.append(poly)
-                used_indices.add(i)
-                print(f"added {i} to : {used_indices}")
-            else:
-                print("overwritten")
-
-        # ✅ Clear tiles before adding new ones
-        self.tiles = []
-        self.next_tile_id = 0
-
-        # ✅ Now create tiles from filtered polygons
-        for poly in filtered_polygons:
-            edges_indices = []
-            valid = True
-            for i in range(len(poly)):
-                p1 = poly[i]
-                p2 = poly[(i + 1) % len(poly)]
-                edge_index = self.get_edge_index(min(p1, p2), max(p1, p2))
-                if edge_index != -1:
-                    edges_indices.append(edge_index)
-                else:
-                    valid = False
-                    break
-
-            if valid and len(edges_indices) > 2:
-                new_tile = {
-                    "id": self.next_tile_id,
-                    "name": f"Tile {self.next_tile_id}",
-                    "type": "plains",
-                    "population": 0,
-                    "edges": edges_indices,
-                    "points": poly,
-                    "neighbors": []
-                }
-                self.tiles.append(new_tile)
-                self.next_tile_id += 1
-                print(f"Created tile {new_tile['id']} with {len(poly)} points: {poly}")
-
-        # ✅ Now compute neighbors
-        self.compute_neighbors()
-
-        self.progress_bar.setVisible(False)
-        # ✅ Final UI updates
-        print(f"Created {len(self.tiles)} tiles")
-        self.update_status()
-        self.canvas.update()
-        
+   
     def find_simple_polygons(self, adj_list, edge_set):
         """Find all simple polygons (cycles without internal edges)"""
         polygons = []
         
         # Try direct search for polygons of different sizes
-        for size in range(3, len(self.points) + 1):
-            cycles = self._find_cycles_of_size(size, adj_list, edge_set)
+        MAX_POLY_SIZE = 8
+        for size in range(3, min(len(self.points) + 1, MAX_POLY_SIZE + 1)):
+            cycles = self.find_local_greedy_cycles(adj_list, edge_set, max_size=min(size,8), distance_threshold=0.15)
+            #cycles = self._find_cycles_of_size(size, adj_list, edge_set)
             print(f"Checking {len(cycles)} cycles of size {size}")
             for cycle in cycles:
                 if len(cycle) >= 3 and not self._has_internal_edges(cycle, edge_set):
@@ -555,6 +507,86 @@ class MapEditor(QMainWindow):
                 print(f"Found outer polygon with {len(outer_polygon)} points: {outer_polygon}")
         
         return polygons
+
+    def find_local_greedy_cycles(self, adj_list, edge_set, max_size=8, distance_threshold=0.15):
+        """Greedy local polygon discovery: prioritize nearby nodes and limit distance."""
+        found_cycles = []
+        visited = set()
+
+        def euclidean_dist(p1, p2):
+            return ((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2) ** 0.5
+
+        for start in range(len(self.points)):
+            queue = [([start], set([start]))]
+            start_point = self.points[start]
+
+            while queue:
+                path, path_set = queue.pop(0)
+                current = path[-1]
+                current_point = self.points[current]
+
+                # Try to complete the cycle if long enough
+                if len(path) >= 3 and start in adj_list[current]:
+                    cycle = path[:]
+                    if self._is_valid_cycle(cycle, edge_set):
+                        key = tuple(sorted(cycle))
+                        if key not in visited:
+                            visited.add(key)
+                            found_cycles.append(cycle)
+                            print(f"Greedy found cycle: {cycle}")
+                    continue
+
+                # Greedy neighbor sort by spatial proximity
+                neighbors = [
+                    n for n in adj_list[current] 
+                    if n not in path_set or (n == start and len(path) >= 3)
+                ]
+                neighbors.sort(key=lambda n: euclidean_dist(current_point, self.points[n]))
+
+                for neighbor in neighbors:
+                    if len(path) >= max_size:
+                        continue  # Too long
+
+                    # Check spatial threshold
+                    if euclidean_dist(start_point, self.points[neighbor]) > distance_threshold:
+                        continue
+
+                    # Check edge validity
+                    edge = (min(current, neighbor), max(current, neighbor))
+                    if edge not in edge_set:
+                        continue
+
+                    new_path = path + [neighbor]
+                    new_set = path_set.copy()
+                    new_set.add(neighbor)
+                    queue.append((new_path, new_set))
+
+        return found_cycles
+
+    def _is_valid_cycle(self, cycle, edge_set):
+        """Check if a cycle is valid: all boundary edges exist and no internal edges"""
+        if len(cycle) < 3:
+            return False
+
+        # Check boundary edges
+        for i in range(len(cycle)):
+            p1 = cycle[i]
+            p2 = cycle[(i + 1) % len(cycle)]
+            if (min(p1, p2), max(p1, p2)) not in edge_set:
+                return False
+
+        # Check for internal edges (non-adjacent)
+        if len(cycle) > 3:
+            for i in range(len(cycle)):
+                for j in range(i + 2, len(cycle)):
+                    if j == (i + 1) % len(cycle) or (i == 0 and j == len(cycle) - 1):
+                        continue
+                    edge = (min(cycle[i], cycle[j]), max(cycle[i], cycle[j]))
+                    if edge in edge_set:
+                        return False
+
+        return True
+
 
     def polygons_overlap_significantly(self, poly_a_idx, poly_b_idx):
         from shapely.geometry import Polygon as ShapelyPolygon
@@ -1682,6 +1714,91 @@ class MapEditor(QMainWindow):
             QMessageBox.information(self, "Success", f"Data exported to {file_name}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to export data: {str(e)}")
+    
+    def load_json(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open JSON", "", "JSON Files (*.json)")
+        if not file_name:
+            return
+
+        try:
+            with open(file_name, 'r') as f:
+                data = json.load(f)
+
+            # Validate required fields
+            if not all(k in data for k in ("vertices", "edges", "tiles")):
+                raise ValueError("Missing keys in JSON file")
+
+            # Load data
+            self.points = data["vertices"]
+            self.edges = data["edges"]
+            raw_tiles = data["tiles"]
+
+            self.tiles = []
+            for tile in raw_tiles:
+                # Reconstruct point loop from edges
+                edge_indices = tile["edges"]
+                tile_edges = [self.edges[i] for i in edge_indices]
+
+                # Attempt to reconstruct point loop from connected edges
+                point_chain = self.reconstruct_loop_from_edges(tile_edges)
+                if point_chain:
+                    tile["points"] = point_chain
+                else:
+                    print(f"Warning: Failed to reconstruct tile {tile['id']} from edges")
+                    tile["points"] = []
+
+                self.tiles.append(tile)
+
+            self.selected_point = None
+            self.shift_selected_point = None
+            self.selected_tile = None
+            self.next_tile_id = max((tile["id"] for tile in self.tiles), default=-1) + 1
+
+            self.info_label.setText(f"Loaded map from {file_name}")
+            self.update_status()
+            self.canvas.update()
+            QMessageBox.information(self, "Success", f"Map loaded from {file_name}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load file: {str(e)}")
+
+    def reconstruct_loop_from_edges(self, edges):
+        """Reconstruct a closed point loop from an unordered list of edges"""
+        if not edges:
+            return []
+
+        # Build adjacency map
+        adj = {}
+        for a, b in edges:
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+
+        # Start from a node with degree 2
+        start = None
+        for k, v in adj.items():
+            if len(v) == 2:
+                start = k
+                break
+        if start is None:
+            return []
+
+        # Traverse loop
+        path = [start]
+        prev = None
+        current = start
+
+        while True:
+            neighbors = adj[current]
+            next_point = neighbors[0] if neighbors[0] != prev else neighbors[1]
+            if next_point == start:
+                break
+            path.append(next_point)
+            prev, current = current, next_point
+            if len(path) > len(edges):
+                return []  # safety: avoid infinite loop
+
+        return path
+
 
 
 class Canvas(QWidget):
