@@ -1,0 +1,224 @@
+{
+  "vertices": [
+    [
+      0.5053653551354114,
+      0.35743484925907
+    ],
+    [
+      0.5329586101175269,
+      0.358456821665815
+    ],
+    [
+      0.5304036791006643,
+      0.3042922841083291
+    ],
+    [
+      0.516096065406234,
+      0.25625958099131324
+    ],
+    [
+      0.5017884517118038,
+      0.300204394481349
+    ],
+    [
+      0.5452311090896155,
+      0.27995881942465833
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      4
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      2,
+      4
+    ],
+    [
+      2,
+      5
+    ],
+    [
+      3,
+      5
+    ]
+  ],
+  "tiles": [
+    {
+      "name": "Tile 0",
+      "id": 0,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        0,
+        0
+      ],
+      "neighbors": [
+        10
+      ]
+    },
+    {
+      "name": "Tile 1",
+      "id": 1,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        1,
+        1
+      ],
+      "neighbors": [
+        10
+      ]
+    },
+    {
+      "name": "Tile 2",
+      "id": 2,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        2,
+        2
+      ],
+      "neighbors": [
+        10
+      ]
+    },
+    {
+      "name": "Tile 3",
+      "id": 3,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        3,
+        3
+      ],
+      "neighbors": [
+        8,
+        9
+      ]
+    },
+    {
+      "name": "Tile 4",
+      "id": 4,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        5,
+        5
+      ],
+      "neighbors": [
+        8,
+        10
+      ]
+    },
+    {
+      "name": "Tile 5",
+      "id": 5,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        6,
+        6
+      ],
+      "neighbors": [
+        9
+      ]
+    },
+    {
+      "name": "Tile 6",
+      "id": 6,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        4,
+        4
+      ],
+      "neighbors": [
+        8
+      ]
+    },
+    {
+      "name": "Tile 7",
+      "id": 7,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        7,
+        7
+      ],
+      "neighbors": [
+        9
+      ]
+    },
+    {
+      "name": "Tile 8",
+      "id": 8,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        3,
+        4,
+        5
+      ],
+      "neighbors": [
+        3,
+        4,
+        6,
+        9,
+        10
+      ]
+    },
+    {
+      "name": "Tile 9",
+      "id": 9,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        3,
+        7,
+        6
+      ],
+      "neighbors": [
+        3,
+        5,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "Tile 10",
+      "id": 10,
+      "type": "plains",
+      "population": 0,
+      "edges": [
+        0,
+        5,
+        2,
+        1
+      ],
+      "neighbors": [
+        0,
+        1,
+        2,
+        4,
+        8
+      ]
+    }
+  ]
+}

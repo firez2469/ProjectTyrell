@@ -12,6 +12,8 @@ public class Tile : MonoBehaviour
     public Color disabledColor;
     public Vector3[] outlinePoints;
     public string biome;
+    public TileStats stats;
+    public int controllerId = -1;
 
     public enum TileType { Land, Sea, City, Coast, River, Hills, Mountains }
 
