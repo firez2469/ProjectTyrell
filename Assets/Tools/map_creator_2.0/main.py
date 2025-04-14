@@ -46,6 +46,7 @@ class MapEditor(QMainWindow):
         self.shift_selected_point = None
         self.selected_tile = None
         self.next_tile_id = 0
+        self.new_edges = []
         
         # Zoom and pan variables
         self.zoom_factor = 1.0
@@ -209,7 +210,9 @@ class MapEditor(QMainWindow):
         # Check if the edge already exists
         edge = (min(idx1, idx2), max(idx1, idx2))
         if edge not in self.edges:
+            print("Added edge:",len(self.edges))
             self.edges.append(edge)
+            self.new_edges.append(edge)
             # Make the destination point the new selected point
             self.selected_point = idx2
             self.shift_selected_point = None
@@ -221,8 +224,12 @@ class MapEditor(QMainWindow):
     
     def get_edge_index(self, p1, p2):
         for i, edge in enumerate(self.edges):
-            if edge == (p1, p2):
+            if edge[0] == p1 and edge[1] == p2:
                 return i
+            if edge == [p1, p2]:
+                return i
+              
+        print(f"Could not find: {p1}, {p2}")
         return -1
     
     def do_edges_intersect(self, p1, p2, p3, p4):
@@ -286,14 +293,8 @@ class MapEditor(QMainWindow):
             return
 
         print(f"Generating polygons from {len(self.points)} points and {len(self.edges)} edges")
-
-        # If appending, track used points
-        used_point_indices = set()
-        if mode == "append":
-            for tile in self.tiles:
-                used_point_indices.update(tile["points"])
-
         
+        # TODO: Whenever we create a new point, record that as a "new point" then when checking if a point is included in an edge, we can verify if it is a new point or not.
         # Build the graph
         # Build subgraph (only new parts of the graph if appending)
         if mode == "append":
@@ -303,16 +304,26 @@ class MapEditor(QMainWindow):
 
             for tile in self.tiles:
                 pts = tile["points"]
+                edge_shared_with_new = False
                 for i in range(len(pts)):
                     a = pts[i]
                     b = pts[(i + 1) % len(pts)]
+                    # check if either point is included in new_edges  if so do not include them in used_edges.
+                    for _e in self.new_edges:
+                        if a in _e or b in _e:
+                            print("Shared edge detected. Stopping removal...")
+                            edge_shared_with_new = True
+                            break
                     used_edges.add(tuple(sorted((a, b))))
-                used_point_indices.update(tile["points"])
-
+               
+                if not edge_shared_with_new:
+                    used_point_indices.update(tile["points"])
+            
+            new_points = set(range(len(self.points))) - used_point_indices
             filtered_edges = []
             for e in self.edges:
                 edge_tuple = tuple(sorted(e))
-                if edge_tuple not in used_edges or e[0] not in used_point_indices or e[1] not in used_point_indices:
+                if edge_tuple not in used_edges or (e[0] in new_points or e[1] in new_points):
                     filtered_edges.append(e)
 
 
@@ -406,10 +417,12 @@ class MapEditor(QMainWindow):
             for i in range(len(poly)):
                 p1 = poly[i]
                 p2 = poly[(i + 1) % len(poly)]
+                print(f"({p1}, {p2})")
                 edge_index = self.get_edge_index(min(p1, p2), max(p1, p2))
                 if edge_index != -1:
                     edges_indices.append(edge_index)
                 else:
+                    print("failed to find index:",edge_index)
                     valid = False
                     break
 
@@ -1688,7 +1701,7 @@ class MapEditor(QMainWindow):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save JSON", "", "JSON Files (*.json)")
         if not file_name:
             return
-        
+        print("exporting", len(self.edges), "edges")
         # Prepare data in the specified format
         export_data = {
             "vertices": self.points,
@@ -1737,10 +1750,12 @@ class MapEditor(QMainWindow):
             for tile in raw_tiles:
                 # Reconstruct point loop from edges
                 edge_indices = tile["edges"]
+                print(edge_indices)
                 tile_edges = [self.edges[i] for i in edge_indices]
-
+                print("loaded:", tile_edges)
                 # Attempt to reconstruct point loop from connected edges
                 point_chain = self.reconstruct_loop_from_edges(tile_edges)
+                print("reconstructed...")
                 if point_chain:
                     tile["points"] = point_chain
                 else:
@@ -1786,7 +1801,6 @@ class MapEditor(QMainWindow):
         path = [start]
         prev = None
         current = start
-
         while True:
             neighbors = adj[current]
             next_point = neighbors[0] if neighbors[0] != prev else neighbors[1]
