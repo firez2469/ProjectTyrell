@@ -11,6 +11,11 @@ from shapely.strtree import STRtree
 from PyQt5.QtWidgets import QProgressBar
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from scipy.spatial import Voronoi
+import random
+from PIL import Image
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox, QFrame
 
 class PolygonWorker(QObject):
     finished = pyqtSignal()
@@ -57,6 +62,8 @@ class MapEditor(QMainWindow):
         
         self.init_ui()
     
+    
+    
     def init_ui(self):
         # Main layout
         main_layout = QHBoxLayout()
@@ -64,63 +71,80 @@ class MapEditor(QMainWindow):
         # Canvas area
         self.canvas = Canvas(self)
         main_layout.addWidget(self.canvas, 4)  # 4:1 ratio
+
+        # Add vertical line (separator)
+        line = QFrame()
+        line.setFrameShape(QFrame.VLine)
+        line.setFrameShadow(QFrame.Sunken)
+        main_layout.addWidget(line)
         
         # Controls
         controls_layout = QVBoxLayout()
+
+        def add_section(label_text, buttons):
+            section_label = QLabel(f"<b>{label_text}</b>")
+            section_label.setStyleSheet("margin-top: 10px; margin-bottom: 4px;")
+            controls_layout.addWidget(section_label)
+            for btn in buttons:
+                controls_layout.addWidget(btn)
         
-        # Load image button
         load_btn = QPushButton("Load Image")
         load_btn.clicked.connect(self.load_image)
-        controls_layout.addWidget(load_btn)
-        
-        # Generate polygons button
-        gen_poly_btn = QPushButton("Generate Polygons")
-        gen_poly_btn.clicked.connect(self.generate_polygons)
-        controls_layout.addWidget(gen_poly_btn)
-        
-        # Generate new polygons button
-        gen_new_btn = QPushButton("Generate New Polygons")
-        gen_new_btn.clicked.connect(self.generate_new_polygons)
-        controls_layout.addWidget(gen_new_btn)
 
-
-        # Delete point button
-        delete_btn = QPushButton("Delete Selected Point")
-        delete_btn.clicked.connect(self.delete_selected_point)
-        controls_layout.addWidget(delete_btn)
-        
-        # Reset zoom button
-        reset_zoom_btn = QPushButton("Reset Zoom")
-        reset_zoom_btn.clicked.connect(self.reset_zoom)
-        controls_layout.addWidget(reset_zoom_btn)
-        
-        # Clear all button
-        clear_btn = QPushButton("Clear All")
-        clear_btn.clicked.connect(self.clear_all)
-        controls_layout.addWidget(clear_btn)
-        
-        # Export button
-        export_btn = QPushButton("Export JSON")
-        export_btn.clicked.connect(self.export_json)
-        controls_layout.addWidget(export_btn)
-
-        # Load JSON button
         load_json_btn = QPushButton("Load JSON")
         load_json_btn.clicked.connect(self.load_json)
-        controls_layout.addWidget(load_json_btn)
+
+        export_btn = QPushButton("Export JSON")
+        export_btn.clicked.connect(self.export_json)
+
+        delete_btn = QPushButton("Delete Selected Point")
+        delete_btn.clicked.connect(self.delete_selected_point)
+
+        clear_btn = QPushButton("Clear All")
+        clear_btn.clicked.connect(self.clear_all)
+
+        reset_zoom_btn = QPushButton("Reset Zoom")
+        reset_zoom_btn.clicked.connect(self.reset_zoom)
+
+        gen_poly_btn = QPushButton("Generate Polygons")
+        gen_poly_btn.clicked.connect(self.generate_polygons)
+
+        gen_new_btn = QPushButton("Generate New Polygons")
+        gen_new_btn.clicked.connect(self.generate_new_polygons)
+
+        voronoi_btn = QPushButton("Generate Voronoi Tiles")
+        voronoi_btn.clicked.connect(self.generate_voronoi_tiles)
+
+        rand_voronoi_btn = QPushButton("Generate Random Voronoi Tiles")
+        rand_voronoi_btn.clicked.connect(self.request_voronoi_generation)
+
+        # --- Add grouped sections to the layout ---
+        add_section("Project", [load_btn, load_json_btn, export_btn])
+        add_section("Editing", [delete_btn, clear_btn, reset_zoom_btn])
+        add_section("Polygon Generation", [gen_poly_btn, gen_new_btn])
+        add_section("Voronoi", [voronoi_btn, rand_voronoi_btn])
 
         
-        # Info label
+        # Bottom-right stacked labels container
+        status_container = QVBoxLayout()
+        status_container.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+
         self.info_label = QLabel("Load an image to start")
-        controls_layout.addWidget(self.info_label)
-        
-        # Status display
         self.status_label = QLabel("Points: 0, Edges: 0, Tiles: 0")
-        controls_layout.addWidget(self.status_label)
-        
-        # Zoom info
         self.zoom_label = QLabel("Zoom: 100%")
-        controls_layout.addWidget(self.zoom_label)
+
+        # Optional: make font smaller or gray for subtle look
+        for lbl in [self.info_label, self.status_label, self.zoom_label]:
+            lbl.setStyleSheet("font-size: 10pt; color: gray;")
+
+        status_container.addWidget(self.info_label)
+        status_container.addWidget(self.status_label)
+        status_container.addWidget(self.zoom_label)
+
+        # Add a stretch above to push it to the bottom
+        controls_layout.addStretch(1)
+        controls_layout.addLayout(status_container)
+
         
         # Inside controls_layout, after other controls:
         self.progress_bar = QProgressBar()
@@ -131,6 +155,7 @@ class MapEditor(QMainWindow):
         # Add the controls to the main layout
         control_widget = QWidget()
         control_widget.setLayout(controls_layout)
+        control_widget.setMaximumWidth(220)
         main_layout.addWidget(control_widget, 1)  # 4:1 ratio
         
         # Set the main layout
@@ -138,19 +163,77 @@ class MapEditor(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        
-        
-        self.setWindowTitle("Map Editor")
+        self.setWindowTitle("Tyrell Game Map Editor")
         self.setGeometry(100, 100, 1000, 600)
         self.show()
         
         # Instructions
-        self.show_instructions()
+        self.show_welcome_popup()
     
+    
+    def load_project(self):
+        self.load_image()
+        self.load_json()
+
+    def show_welcome_popup(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Welcome")
+        dialog.setMinimumWidth(400)
+
+        layout = QVBoxLayout()
+
+        # Big title
+        title = QLabel("<h1 style='text-align: center;'>Tyrell Game Project Map Editor</h1>")
+        title.setTextFormat(Qt.RichText)
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        # Credit line
+        credit = QLabel("<p style='text-align: center;'>Created by Marco Hampel</p>")
+        credit.setTextFormat(Qt.RichText)
+        credit.setAlignment(Qt.AlignCenter)
+        layout.addWidget(credit)
+
+        # Welcome text
+        welcome = QLabel(
+            "<p style='text-align: center; padding: 0 10px;'>"
+            "Hello! This editor was developed to create maps for strategy games using the JSON format. "
+            "The editor is currently being developed for the <b>Tyrell Strategy Game Project</b>. "
+            "Hope you enjoy!"
+            "</p>"
+        )
+        # Add version number
+        version_label = QLabel("<p style='text-align: center; color: gray;'>Version 0.1</p>")
+        version_label.setTextFormat(Qt.RichText)
+        version_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(version_label)
+        welcome.setTextFormat(Qt.RichText)
+        welcome.setWordWrap(True)
+        welcome.setAlignment(Qt.AlignCenter)
+        layout.addWidget(welcome)
+
+        # Buttons
+        button_box = QDialogButtonBox()
+        load_btn = QPushButton("Load Project")
+        instructions_btn = QPushButton("Instructions")
+        button_box.addButton(load_btn, QDialogButtonBox.ActionRole)
+        button_box.addButton(instructions_btn, QDialogButtonBox.ActionRole)
+        layout.addWidget(button_box)
+
+        # Set layout
+        dialog.setLayout(layout)
+
+        # Connect button actions
+        load_btn.clicked.connect(lambda: (dialog.accept(), self.load_project()))
+        instructions_btn.clicked.connect(lambda: self.show_instructions())
+
+        dialog.exec_()
+
+
     def show_instructions(self):
         msg = QMessageBox()
         msg.setWindowTitle("Instructions")
-        msg.setText("Map Editor Instructions:\n\n"
+        msg.setText("<b><span style='font-size: 14pt;'>Map Editor Instructions</span></b><br><br>"
                     "- Load an image to start\n"
                     "- Click on the image to create points\n"
                     "- Left-click a point to select it\n"
@@ -162,8 +245,12 @@ class MapEditor(QMainWindow):
                     "- Mouse wheel to zoom in/out\n"
                     "- Hold middle mouse button to pan\n"
                     "- Click 'Generate Polygons' to create tiles from enclosed areas\n"
+                    "- Click 'Generate New Polygons' to add new tiles to existing ones (like 100x more efficient)\n"
                     "- Click on a tile to set its properties\n"
-                    "- Export to JSON when finished")
+                    "- Export to JSON when finished"
+                    "- Click 'Load JSON' to load a previously saved map or to keep working on a project\n"
+                    "- Click 'Generate Voronoi Tiles' to create Voronoi tiles from selected points\n"
+                    "- Click 'Generate Random Voronoi Tiles' to create random Voronoi tiles from randomly distributed points\n")
         msg.exec_()
     
     def load_image(self):
@@ -1637,8 +1724,6 @@ class MapEditor(QMainWindow):
         
         self.canvas.update()
 
-
-    
     def delete_selected_point(self):
         """Delete the currently selected point and update edges"""
         if self.selected_point is None:
@@ -1684,7 +1769,6 @@ class MapEditor(QMainWindow):
         self.canvas.update()
         print(f"Deleted point {idx}, {len(self.points)} points remain, {len(self.tiles)} tiles remain")
 
-    
     def reset_zoom(self):
         """Reset zoom and pan to default"""
         self.zoom_factor = 1.0
@@ -1813,6 +1897,194 @@ class MapEditor(QMainWindow):
 
         return path
 
+    def generate_voronoi_tiles(self):
+        if not self.points:
+            QMessageBox.warning(self, "Warning", "No points to generate Voronoi tiles.")
+            return
+        
+        # Convert normalized points to absolute coordinates
+        width, height = self.image_size
+        coords = [(x * width, y * height) for (x, y) in self.points]
+
+        try:
+            vor = Voronoi(coords)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to generate Voronoi diagram: {str(e)}")
+            return
+        # ❌ Clear all previous data: points, edges, tiles
+        self.points.clear()
+        self.edges.clear()
+        self.tiles.clear()
+        self.next_tile_id = 0
+
+        for i, region_index in enumerate(vor.point_region):
+            region = vor.regions[region_index]
+            if not region or -1 in region:  # Skip infinite regions
+                continue
+
+            vertices = [vor.vertices[j] for j in region]
+            if len(vertices) < 3:
+                continue
+
+            # Convert absolute back to normalized
+            normalized_vertices = [(x / width, y / height) for x, y in vertices]
+
+            if any(not (0 <= x <= 1 and 0 <= y <= 1) for x, y in normalized_vertices):
+                continue
+
+
+            # Add new points if needed
+            point_indices = []
+            for vx, vy in normalized_vertices:
+                if (vx, vy) not in self.points:
+                    self.points.append((vx, vy))
+                point_indices.append(self.points.index((vx, vy)))
+
+            # Compute edges between points
+            tile_edges = []
+            for j in range(len(point_indices)):
+                a = point_indices[j]
+                b = point_indices[(j + 1) % len(point_indices)]
+                edge = (min(a, b), max(a, b))
+                if edge not in self.edges:
+                    self.edges.append(edge)
+                tile_edges.append(self.edges.index(edge))
+
+            self.tiles.append({
+                "id": self.next_tile_id,
+                "name": f"Tile {self.next_tile_id}",
+                "type": "plains",
+                "population": 0,
+                "edges": tile_edges,
+                "points": point_indices,
+                "neighbors": []
+            })
+            self.next_tile_id += 1
+
+        self.compute_neighbors()
+        self.update_status()
+        self.canvas.update()
+        print(f"Generated {len(self.tiles)} Voronoi tiles.")
+    
+    def sample_weighted_points_from_image(self,weight_image_path, n_samples, image_size):
+        """
+        Samples normalized (x, y) coordinates from an image based on intensity.
+        White areas have higher probability.
+        """
+        # Load and convert to grayscale
+        img = Image.open(weight_image_path).convert("L")
+        img = img.resize(image_size, Image.BILINEAR)  # Resize to match current image size
+        arr = np.asarray(img, dtype=np.float32)
+
+        # Normalize to probability distribution
+        prob = arr / np.sum(arr)
+        prob_flat = prob.ravel()
+
+        # Sample pixel indices from weighted distribution
+        indices = np.random.choice(prob.size, size=n_samples, replace=False, p=prob_flat)
+        ys, xs = np.unravel_index(indices, arr.shape)
+
+        width, height = image_size
+        coords = [(x / width, y / height) for x, y in zip(xs, ys)]
+        return coords
+
+    def request_voronoi_generation(self):
+        # Ask for number of centroids
+        num, ok = QInputDialog.getInt(self, "Voronoi Generator", "Number of centroids:", min=3, max=10000, value=1000)
+        if not ok:
+            return
+
+        # Ask for optional grayscale image
+        weight_map_path, _ = QFileDialog.getOpenFileName(self, "Optional Weight Map (White = Dense)", "", "Image Files (*.png *.jpg *.bmp)")
+        if weight_map_path:
+            try:
+                points = self.sample_weighted_points_from_image(weight_map_path, num, self.image_size)
+                print(f"Using weighted sampling with image: {weight_map_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to sample from image: {str(e)}")
+                return
+        else:
+            points = [(random.uniform(0, 1), random.uniform(0, 1)) for _ in range(num)]
+            print("Using uniform distribution")
+
+        self.generate_voronoi_from_random_centroids(points)
+
+    
+    def generate_voronoi_from_random_centroids(self, n_points):
+        
+        if self.image is None:
+            QMessageBox.warning(self, "Warning", "No image loaded.")
+            return
+
+        width, height = self.image_size
+
+        # Convert to image space
+        coords = [(x * width, y * height) for x, y in n_points]
+
+        try:
+            vor = Voronoi(coords)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to compute Voronoi diagram: {str(e)}")
+            return
+
+        # Clear previous tiles if desired
+        self.tiles.clear()
+        self.next_tile_id = 0
+
+        temp_points = list(self.points)  # Backup current points
+        temp_edges = list(self.edges)
+        width, height = self.image_size
+        new_points = []
+        new_edges = []
+
+        for region_index in vor.point_region:
+            region = vor.regions[region_index]
+            if not region or -1 in region:
+                continue
+
+            vertices = [vor.vertices[j] for j in region]
+            if len(vertices) < 3:
+                continue
+
+            # Normalize the vertices (don't add them to self.points!)
+            normalized_vertices = [(x / width, y / height) for x, y in vertices]
+
+            # Store point indices temporarily (and track newly added ones for this tile only)
+            point_indices = []
+            for vx, vy in normalized_vertices:
+                if (vx, vy) not in new_points:
+                    new_points.append((vx, vy))
+                point_indices.append(new_points.index((vx, vy)) + len(self.points))  # offset for temporary
+
+            # Generate edges and store globally if unique
+            tile_edges = []
+            for j in range(len(point_indices)):
+                a = point_indices[j]
+                b = point_indices[(j + 1) % len(point_indices)]
+                edge = (min(a, b), max(a, b))
+                if edge not in new_edges:
+                    new_edges.append(edge)
+                tile_edges.append(new_edges.index(edge) + len(self.edges))
+
+            self.tiles.append({
+                "id": self.next_tile_id,
+                "name": f"Tile {self.next_tile_id}",
+                "type": "plains",
+                "population": 0,
+                "edges": tile_edges,
+                "points": point_indices,
+                "neighbors": []
+            })
+            self.next_tile_id += 1
+
+        # Append new edges and points after generation
+        self.edges.extend(new_edges)
+        self.points.extend(new_points)
+
+        self.compute_neighbors()
+        self.update_status()
+        self.canvas.update()
+        print(f"Generated {len(self.tiles)} Voronoi tiles.")
 
 
 class Canvas(QWidget):
@@ -2245,6 +2517,8 @@ class Canvas(QWidget):
 
 
 if __name__ == "__main__":
+    import sys
     app = QApplication(sys.argv)
+    app.setApplicationName("Tyrell Game Map Editor")
     editor = MapEditor()
     sys.exit(app.exec_())

@@ -74,3 +74,6 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 
 /Assets/Resources/PolyGen/*
+
+# Generated Tool Application Files
+/[Aa]ssets/[Tt]ools/map_creator_2.0/TyrellMapEditor/*
