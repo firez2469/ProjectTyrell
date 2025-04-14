@@ -13,8 +13,7 @@ public class MapMeshGenerationEditor : Editor
     private SerializedProperty landMaterialProperty;
     private SerializedProperty seaMaterialProperty;
     private SerializedProperty regenerateMeshesProperty;
-    private SerializedProperty polygonDataAssetProperty;
-    private SerializedProperty tileDataAssetProperty;
+    private SerializedProperty combinedDataAssetProperty;
     private SerializedProperty lineWidthProperty;
     private SerializedProperty worldLineColorProperty;
     private SerializedProperty highlightLandColorProperty;
@@ -26,18 +25,17 @@ public class MapMeshGenerationEditor : Editor
 
     private void OnEnable()
     {
-        // Get serialized properties from MapMeshGeneration
         landMaterialProperty = serializedObject.FindProperty("landMaterial");
         seaMaterialProperty = serializedObject.FindProperty("seaMaterial");
         regenerateMeshesProperty = serializedObject.FindProperty("regenerateMeshes");
-        polygonDataAssetProperty = serializedObject.FindProperty("polygonDataAsset");
-        tileDataAssetProperty = serializedObject.FindProperty("tileDataAsset");
+        combinedDataAssetProperty = serializedObject.FindProperty("combinedDataAsset");
         lineWidthProperty = serializedObject.FindProperty("lineWidth");
         worldLineColorProperty = serializedObject.FindProperty("worldLineColor");
         highlightLandColorProperty = serializedObject.FindProperty("highlightLandColor");
         highlightSeaColorProperty = serializedObject.FindProperty("highlightSeaColor");
         biomeColorsProperty = serializedObject.FindProperty("biomeColors");
     }
+
 
     public override void OnInspectorGUI()
     {
@@ -46,8 +44,7 @@ public class MapMeshGenerationEditor : Editor
         EditorGUILayout.PropertyField(landMaterialProperty, new GUIContent("Land Material", "Material to use for land tiles"));
         EditorGUILayout.PropertyField(seaMaterialProperty, new GUIContent("Sea Material", "Material to use for sea tiles"));
         EditorGUILayout.PropertyField(regenerateMeshesProperty, new GUIContent("Regenerate Meshes", "If true, will overwrite existing mesh assets"));
-        EditorGUILayout.PropertyField(polygonDataAssetProperty, new GUIContent("Polygon Data Asset", "JSON TextAsset containing polygon data"));
-        EditorGUILayout.PropertyField(tileDataAssetProperty, new GUIContent("Tile Data Asset", "JSON TextAsset containing tile data"));
+        EditorGUILayout.PropertyField(combinedDataAssetProperty, new GUIContent("Combined JSON Asset", "Unified JSON containing vertices, edges, and tiles"));
 
         EditorGUILayout.Space(10);
         EditorGUILayout.LabelField("Line Renderer Settings", EditorStyles.boldLabel);
@@ -104,7 +101,7 @@ public class MapMeshGenerationEditor : Editor
 
             if (GUILayout.Button("View Polygon JSON Data", GUILayout.Height(25)))
             {
-                ViewJsonData(((MapMeshGeneration)target).polygonDataAsset);
+                ViewJsonData(((MapMeshGeneration)target).combinedDataAsset);
             }
 
             if (GUILayout.Button("View Tile JSON Data", GUILayout.Height(25)))
@@ -143,37 +140,31 @@ public class MapMeshGenerationEditor : Editor
     private void ExtractBiomeTypesFromJson()
     {
         MapMeshGeneration mapGenerator = (MapMeshGeneration)target;
-
-        if (mapGenerator.tileDataAsset == null)
+        if (mapGenerator.combinedDataAsset == null)
         {
-            EditorUtility.DisplayDialog("Error", "No tile data asset assigned. Please assign a TextAsset containing tile data first.", "OK");
+            EditorUtility.DisplayDialog("Error", "No combined data asset assigned.", "OK");
             return;
         }
 
         try
         {
-            // Parse the tile data
-            var tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(mapGenerator.tileDataAsset.text);
-
-            if (tileDataList == null || tileDataList.Count == 0)
+            var data = JsonConvert.DeserializeObject<MapData.CombinedMapData>(mapGenerator.combinedDataAsset.text);
+            if (data == null || data.tiles == null)
             {
-                EditorUtility.DisplayDialog("Error", "Failed to parse tile data or no tiles found.", "OK");
+                EditorUtility.DisplayDialog("Error", "Failed to parse tile data from combined file.", "OK");
                 return;
             }
 
-            // Extract unique biome types
             HashSet<string> biomeTypes = new HashSet<string>();
-            foreach (var tile in tileDataList)
+            foreach (var tile in data.tiles)
             {
-                if (!string.IsNullOrEmpty(tile.biome))
-                {
-                    biomeTypes.Add(tile.biome);
-                }
+                if (!string.IsNullOrEmpty(tile.type))
+                    biomeTypes.Add(tile.type);
             }
 
             if (biomeTypes.Count == 0)
             {
-                EditorUtility.DisplayDialog("Info", "No biome information found in the tile data.", "OK");
+                EditorUtility.DisplayDialog("Info", "No biomes found in combined data.", "OK");
                 return;
             }
 
@@ -240,7 +231,7 @@ public class MapMeshGenerationEditor : Editor
         }
         catch (Exception e)
         {
-            EditorUtility.DisplayDialog("Error", $"Failed to extract biome types: {e.Message}", "OK");
+            EditorUtility.DisplayDialog("Error", $"Failed to extract biomes: {e.Message}", "OK");
             Debug.LogException(e);
         }
     }
@@ -251,14 +242,14 @@ public class MapMeshGenerationEditor : Editor
         MapMeshGeneration mapGenerator = (MapMeshGeneration)target;
         mapGenerator.transform.localScale = Vector3.one;
         // Check if polygon data is assigned
-        if (mapGenerator.polygonDataAsset == null)
+        if (mapGenerator.combinedDataAsset == null)
         {
             EditorUtility.DisplayDialog("Error", "Polygon Data Asset is not assigned. Please assign a TextAsset containing polygon data before generating meshes.", "OK");
             return;
         }
 
         // Validate the JSON format before proceeding
-        if (!ValidatePolygonData(mapGenerator.polygonDataAsset))
+        if (!ValidateCombinedData(mapGenerator.combinedDataAsset))
         {
             return;
         }
@@ -269,7 +260,7 @@ public class MapMeshGenerationEditor : Editor
         try
         {
             // Call the Load function
-            mapGenerator.Load(mapGenerator.polygonDataAsset);
+            mapGenerator.Load(mapGenerator.combinedDataAsset);
 
             // Mark scene as dirty
             EditorUtility.SetDirty(mapGenerator);
@@ -293,161 +284,49 @@ public class MapMeshGenerationEditor : Editor
         }
 
     }
-
-    private bool ValidatePolygonData(TextAsset polygonDataAsset)
+    private bool ValidateCombinedData(TextAsset combinedAsset)
     {
         try
         {
-            // Check if the text asset is empty
-            if (string.IsNullOrEmpty(polygonDataAsset.text))
+            if (string.IsNullOrEmpty(combinedAsset.text))
             {
-                EditorUtility.DisplayDialog("Error", "The polygon data asset is empty.", "OK");
+                EditorUtility.DisplayDialog("Error", "Combined JSON asset is empty.", "OK");
                 return false;
             }
 
-            // Try to parse with Newtonsoft.Json
-            try
+            var data = JsonConvert.DeserializeObject<MapData.CombinedMapData>(combinedAsset.text);
+            if (data == null)
             {
-                var polygonData = JsonConvert.DeserializeObject<MapData.PolygonData>(polygonDataAsset.text);
-
-                if (polygonData == null)
-                {
-                    EditorUtility.DisplayDialog("Error", "Failed to parse JSON data. The format may be incorrect.", "OK");
-                    return false;
-                }
-
-                // Check for required arrays
-                if (polygonData.vertices == null)
-                {
-                    EditorUtility.DisplayDialog("Error", "The polygon data is missing the 'vertices' array.", "OK");
-                    return false;
-                }
-
-                if (polygonData.edges == null)
-                {
-                    EditorUtility.DisplayDialog("Error", "The polygon data is missing the 'edges' array.", "OK");
-                    return false;
-                }
-
-                if (polygonData.polygons == null)
-                {
-                    EditorUtility.DisplayDialog("Error", "The polygon data is missing the 'polygons' array.", "OK");
-                    return false;
-                }
-
-                // Check if arrays are empty
-                if (polygonData.vertices.Count == 0)
-                {
-                    EditorUtility.DisplayDialog("Warning", "The 'vertices' array is empty.", "OK");
-                }
-
-                if (polygonData.edges.Count == 0)
-                {
-                    EditorUtility.DisplayDialog("Warning", "The 'edges' array is empty.", "OK");
-                }
-
-                if (polygonData.polygons.Count == 0)
-                {
-                    EditorUtility.DisplayDialog("Warning", "The 'polygons' array is empty.", "OK");
-                }
-
-                Debug.Log("Polygon JSON validation successful");
-                return true;
-            }
-            catch (JsonException jsonEx)
-            {
-                EditorUtility.DisplayDialog("JSON Parse Error", $"The polygon JSON format is invalid: {jsonEx.Message}", "OK");
-                Debug.LogException(jsonEx);
+                EditorUtility.DisplayDialog("Error", "Failed to parse combined JSON data.", "OK");
                 return false;
             }
-        }
-        catch (System.Exception e)
-        {
-            EditorUtility.DisplayDialog("Error", $"Failed to validate polygon data: {e.Message}", "OK");
-            Debug.LogException(e);
-            return false;
-        }
-    }
 
-    private bool ValidateTileData(TextAsset tileDataAsset)
-    {
-        if (tileDataAsset == null)
-        {
-            Debug.LogWarning("Tile data asset not found. This is optional, but recommended.");
-            return true; // Not an error, just a warning
-        }
-
-        try
-        {
-            // Check if the text asset is empty
-            if (string.IsNullOrEmpty(tileDataAsset.text))
+            if (data.vertices == null || data.edges == null || data.tiles == null)
             {
-                EditorUtility.DisplayDialog("Warning", "The tile data asset is empty.", "OK");
-                return true; // Not a critical error
-            }
-
-            // Try to parse with Newtonsoft.Json
-            try
-            {
-                var tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(tileDataAsset.text);
-
-                if (tileDataList == null)
-                {
-                    EditorUtility.DisplayDialog("Error", "Failed to parse tile data JSON. The format may be incorrect.", "OK");
-                    return false;
-                }
-
-                // Count biomes if available
-                int biomesFound = 0;
-                foreach (var tile in tileDataList)
-                {
-                    if (!string.IsNullOrEmpty(tile.biome))
-                    {
-                        biomesFound++;
-                    }
-                }
-
-                Debug.Log($"Tile data JSON validation successful: {tileDataList.Count} tiles found, {biomesFound} with biome information");
-                return true;
-            }
-            catch (JsonException jsonEx)
-            {
-                EditorUtility.DisplayDialog("JSON Parse Error", $"The tile data JSON format is invalid: {jsonEx.Message}", "OK");
-                Debug.LogException(jsonEx);
+                EditorUtility.DisplayDialog("Error", "Missing one or more required fields (vertices, edges, tiles).", "OK");
                 return false;
             }
+
+            return true;
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
-            EditorUtility.DisplayDialog("Error", $"Failed to validate tile data: {e.Message}", "OK");
-            Debug.LogException(e);
+            EditorUtility.DisplayDialog("JSON Parse Error", $"Failed to validate combined JSON: {e.Message}", "OK");
             return false;
         }
     }
 
     private void ValidateJsonFormats()
     {
-        MapMeshGeneration mapGenerator = (MapMeshGeneration)target;
-        bool polygonDataValid = false;
-        bool tileDataValid = false;
+        MapMeshGeneration mapGen = (MapMeshGeneration)target;
+        bool valid = ValidateCombinedData(mapGen.combinedDataAsset);
 
-        if (mapGenerator.polygonDataAsset != null)
-        {
-            polygonDataValid = ValidatePolygonData(mapGenerator.polygonDataAsset);
-        }
-        else
-        {
-            EditorUtility.DisplayDialog("Error", "No polygon data asset assigned.", "OK");
-        }
-
-        tileDataValid = ValidateTileData(mapGenerator.tileDataAsset);
-
-        string message = "Validation Results:\n\n";
-        message += $"Polygon Data: {(polygonDataValid ? "Valid ✓" : "Invalid ✗")}\n";
-        message += $"Tile Data: {(tileDataValid ? "Valid ✓" : mapGenerator.tileDataAsset == null ? "Not Found" : "Invalid ✗")}";
-
-        EditorUtility.DisplayDialog("JSON Validation Results", message, "OK");
+        string msg = valid ? "Combined JSON is valid ✓" : "Combined JSON is invalid ✗";
+        EditorUtility.DisplayDialog("Validation Result", msg, "OK");
     }
+
+
+
 
     private void ClearTileObjects()
     {

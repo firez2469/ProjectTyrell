@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections.Generic;
 using System.IO;
 using System;
@@ -16,9 +16,11 @@ namespace MapData
         [JsonProperty("vertices")]
         public List<List<float>> vertices;
 
-        [JsonProperty("polygons")]
-        public List<List<int>> polygons;
+        // We'll derive this ourselves in code
+        [JsonIgnore]
+        public List<List<int>> polygons = new List<List<int>>();
     }
+
 
     [Serializable]
     public class TileData
@@ -26,18 +28,38 @@ namespace MapData
         [JsonProperty("name")]
         public string name;
 
-        [JsonProperty("edges")]
-        public List<int> edges;
+        [JsonProperty("id")]
+        public int id;
 
         [JsonProperty("type")]
         public string type;
 
-        [JsonProperty("biome")]
-        public string biome;
+        [JsonProperty("population")]
+        public int population;
+
+        [JsonProperty("edges")]
+        public List<int> edges;
 
         [JsonProperty("neighbors")]
         public List<string> neighbors;
+
     }
+
+
+    [Serializable]
+    public class CombinedMapData
+    {
+        [JsonProperty("vertices")]
+        public List<List<float>> vertices;
+
+        [JsonProperty("edges")]
+        public List<List<int>> edges;
+
+        [JsonProperty("tiles")]
+        public List<TileData> tiles;
+    }
+
+
 }
 
 public class MapMeshGeneration : MonoBehaviour
@@ -45,7 +67,7 @@ public class MapMeshGeneration : MonoBehaviour
     [SerializeField] private Material landMaterial;
     [SerializeField] private Material seaMaterial;
     [SerializeField] private bool regenerateMeshes = false;
-    [SerializeField] public TextAsset polygonDataAsset;
+    [SerializeField] public TextAsset combinedDataAsset;
     [SerializeField] public TextAsset tileDataAsset;
     [SerializeField] public float lineWidth = 0.1f;
     [SerializeField] public Color worldLineColor = Color.gray;
@@ -108,11 +130,11 @@ public class MapMeshGeneration : MonoBehaviour
 
     }
 
-    public void Load(TextAsset polygonDataAsset)
+    public void Load(TextAsset combinedJsonAsset)
     {
-        if (polygonDataAsset == null)
+        if (combinedJsonAsset == null)
         {
-            Debug.LogError("Polygon data asset is null!");
+            Debug.LogError("Combined map data asset is null!");
             return;
         }
 
@@ -121,88 +143,39 @@ public class MapMeshGeneration : MonoBehaviour
             // Initialize biome color mapping
             InitializeBiomeColors();
 
-            // Log the first part of the JSON to debug
-            Debug.Log($"Parsing polygon JSON data (first 100 chars): {polygonDataAsset.text.Substring(0, Mathf.Min(100, polygonDataAsset.text.Length))}...");
+            Debug.Log($"Parsing combined JSON data (first 100 chars): {combinedJsonAsset.text.Substring(0, Mathf.Min(100, combinedJsonAsset.text.Length))}...");
 
-            // Parse the polygon JSON data using Newtonsoft.Json
-            MapData.PolygonData polygonData = JsonConvert.DeserializeObject<MapData.PolygonData>(polygonDataAsset.text);
+            // Deserialize the unified JSON
+            MapData.CombinedMapData mapData = JsonConvert.DeserializeObject<MapData.CombinedMapData>(combinedJsonAsset.text);
 
-            // Check if polygonData is null or its properties are null
-            if (polygonData == null)
+            if (mapData == null || mapData.vertices == null || mapData.edges == null || mapData.tiles == null)
             {
-                Debug.LogError("Failed to parse polygon data - returned null object");
+                Debug.LogError("Failed to parse combined map data properly.");
                 return;
             }
 
-            if (polygonData.vertices == null)
+            Debug.Log($"Loaded {mapData.vertices.Count} vertices, {mapData.edges.Count} edges, {mapData.tiles.Count} tiles");
+
+            // Create PolygonData manually
+            MapData.PolygonData polygonData = new MapData.PolygonData
             {
-                Debug.LogError("Polygon data has null vertices list");
-                return;
+                vertices = mapData.vertices,
+                edges = mapData.edges,
+                polygons = new List<List<int>>()
+            };
+
+            foreach (var tile in mapData.tiles)
+            {
+                polygonData.polygons.Add(tile.edges);
             }
 
-            if (polygonData.edges == null)
-            {
-                Debug.LogError("Polygon data has null edges list");
-                return;
-            }
-
-            if (polygonData.polygons == null)
-            {
-                Debug.LogError("Polygon data has null polygons list");
-                return;
-            }
-
-            Debug.Log($"Successfully parsed polygon data with {polygonData.vertices.Count} vertices, {polygonData.edges.Count} edges, and {polygonData.polygons.Count} polygons");
-
-            // Use the tile data asset if provided, otherwise try to load from Resources
-            List<MapData.TileData> tileDataList = new List<MapData.TileData>();
-
-            if (tileDataAsset != null)
-            {
-                try
-                {
-                    Debug.Log($"Parsing tile data JSON (first 100 chars): {tileDataAsset.text.Substring(0, Mathf.Min(100, tileDataAsset.text.Length))}...");
-
-                    // Parse the tile data using Newtonsoft.Json
-                    tileDataList = JsonConvert.DeserializeObject<List<MapData.TileData>>(tileDataAsset.text);
-
-                    if (tileDataList == null)
-                    {
-                        Debug.LogError("Failed to parse tile data - returned null list");
-                        tileDataList = new List<MapData.TileData>();
-                    }
-                    else
-                    {
-                        // Log biome information if available
-                        int biomesFound = 0;
-                        foreach (var tile in tileDataList)
-                        {
-                            if (!string.IsNullOrEmpty(tile.biome))
-                            {
-                                biomesFound++;
-                            }
-                        }
-                        Debug.Log($"Loaded {tileDataList.Count} tiles from tile data JSON with {biomesFound} containing biome information");
-                    }
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"Error parsing tile data JSON: {e.Message}");
-                    // If parsing fails, we'll just generate tiles from polygon data without type information
-                }
-            }
-            else
-            {
-                Debug.LogWarning("Tile data JSON not found, tiles will default to Land type and Unknown biome");
-            }
-
-            // Convert vertices from 2D to 3D
+            // Convert vertices to 3D
             ConvertVertices(polygonData.vertices);
 
-            // Create mesh tiles
-            CreateMeshTiles(polygonData, tileDataList);
+            // Generate tiles using tile data
+            CreateMeshTiles(polygonData, mapData.tiles);
 
-            // Save meshes to Resources folder
+            // Save and visualize
             SaveMeshes();
         }
         catch (Exception e)
@@ -210,6 +183,7 @@ public class MapMeshGeneration : MonoBehaviour
             Debug.LogError($"Exception in Load method: {e.Message}\nStack trace: {e.StackTrace}");
         }
     }
+
 
     private void ConvertVertices(List<List<float>> vertices2D)
     {
@@ -265,23 +239,26 @@ public class MapMeshGeneration : MonoBehaviour
         for (int i = 0; i < polygonData.polygons.Count; i++)
         {
             List<int> edgeIndices = polygonData.polygons[i];
-            string tileName = $"tile{i}";
+            string tileName = $"Tile {i}";
 
             // Create mesh tile
             MeshTile tile = new MeshTile();
             tile.name = tileName;
             tile.id = i.ToString();
 
-            // Set tile type, biome, and neighbors based on tile data if available
             if (tileDataMap.TryGetValue(tileName, out MapData.TileData tileData))
             {
+                print("Loaded type:" + tileData.type.ToLower());
                 tile.type = tileData.type.ToLower() == "sea" ? MeshTileType.Sea : MeshTileType.Land;
-                tile.biome = !string.IsNullOrEmpty(tileData.biome) ? tileData.biome : "Unknown";
+
                 tile.neighbors = tileData.neighbors ?? new List<string>();
-                tile.tileEdges = tileData.edges ?? new List<int>();
+
+                edgeIndices = tileData.edges ?? new List<int>();
             }
+
             else
             {
+                print("SET DEFAULT...");
                 // Default to Land and Unknown biome if no type information is available
                 tile.type = MeshTileType.Land;
                 tile.biome = "Unknown";
@@ -337,7 +314,7 @@ public class MapMeshGeneration : MonoBehaviour
         List<Vector3> meshVertices = new List<Vector3>();
 
         // Add center vertex
-        meshVertices.Add(new Vector3(0, 0, 0));  // Center at local (0,0,0)
+        meshVertices.Add(new Vector3(0, 0, 0)); 
 
         // Add perimeter vertices, sorted by angle from center
         List<KeyValuePair<float, Vector3>> sortedVertices = new List<KeyValuePair<float, Vector3>>();
@@ -519,6 +496,7 @@ public class MapMeshGeneration : MonoBehaviour
             meshFilter.sharedMesh = tile.tileMesh;
 
             MeshRenderer meshRenderer = tileObject.AddComponent<MeshRenderer>();
+
             meshRenderer.sharedMaterial = tile.type == MeshTileType.Land ? landMaterial : seaMaterial;
 
             MeshCollider collider = tileObject.AddComponent<MeshCollider>();
@@ -559,7 +537,6 @@ public class MapMeshGeneration : MonoBehaviour
             tileComponent.Id = tile.id;
             tileComponent.biome = tile.biome; // Add biome information
             tileComponent.neighbors = tile.neighbors;
-            tileComponent.isLand = MeshTileType.Land == tile.type;
             tileComponent.type = (MeshTileType.Land == tile.type ? Tile.TileType.Land : Tile.TileType.Sea);
             tileComponent.outlinePoints = tile.outlinePoints;
             print("Added " + tile.outlinePoints.Length + " points to " + tile.name + " with biome " + tile.biome);

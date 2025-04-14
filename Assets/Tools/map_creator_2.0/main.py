@@ -16,6 +16,7 @@ import random
 from PIL import Image
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox, QFrame
+from shapely.geometry import Polygon as ShapelyPolygon, box
 
 class PolygonWorker(QObject):
     finished = pyqtSignal()
@@ -118,11 +119,15 @@ class MapEditor(QMainWindow):
         rand_voronoi_btn = QPushButton("Generate Random Voronoi Tiles")
         rand_voronoi_btn.clicked.connect(self.request_voronoi_generation)
 
+        detect_biome_btn = QPushButton("Detect Biome")
+        detect_biome_btn.clicked.connect(self.detect_biomes)
+
+
         # --- Add grouped sections to the layout ---
         add_section("Project", [load_btn, load_json_btn, export_btn])
         add_section("Editing", [delete_btn, clear_btn, reset_zoom_btn])
         add_section("Polygon Generation", [gen_poly_btn, gen_new_btn])
-        add_section("Voronoi", [voronoi_btn, rand_voronoi_btn])
+        add_section("Voronoi", [voronoi_btn, rand_voronoi_btn, detect_biome_btn])
 
         
         # Bottom-right stacked labels container
@@ -2011,14 +2016,11 @@ class MapEditor(QMainWindow):
 
     
     def generate_voronoi_from_random_centroids(self, n_points):
-        
         if self.image is None:
             QMessageBox.warning(self, "Warning", "No image loaded.")
             return
 
         width, height = self.image_size
-
-        # Convert to image space
         coords = [(x * width, y * height) for x, y in n_points]
 
         try:
@@ -2027,36 +2029,47 @@ class MapEditor(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to compute Voronoi diagram: {str(e)}")
             return
 
-        # Clear previous tiles if desired
+        # Clear previous tiles
         self.tiles.clear()
         self.next_tile_id = 0
 
-        temp_points = list(self.points)  # Backup current points
-        temp_edges = list(self.edges)
-        width, height = self.image_size
         new_points = []
         new_edges = []
+        bounding_box = box(0, 0, width, height)  # Clip to image bounds
 
         for region_index in vor.point_region:
             region = vor.regions[region_index]
             if not region or -1 in region:
                 continue
 
-            vertices = [vor.vertices[j] for j in region]
+            vertices = [vor.vertices[i] for i in region]
             if len(vertices) < 3:
                 continue
 
-            # Normalize the vertices (don't add them to self.points!)
-            normalized_vertices = [(x / width, y / height) for x, y in vertices]
+            # Convert to Shapely polygon and clip it
+            poly = ShapelyPolygon(vertices)
+            clipped_poly = poly.intersection(bounding_box)
 
-            # Store point indices temporarily (and track newly added ones for this tile only)
+            if clipped_poly.is_empty or not clipped_poly.is_valid:
+                continue
+
+            # If it’s a MultiPolygon (happens rarely), take the largest piece
+            if clipped_poly.geom_type == "MultiPolygon":
+                clipped_poly = max(clipped_poly.geoms, key=lambda g: g.area)
+
+            coords = list(clipped_poly.exterior.coords)
+            if len(coords) < 3:
+                continue
+
+            # Normalize and add points
             point_indices = []
-            for vx, vy in normalized_vertices:
+            for x, y in coords[:-1]:  # skip the closing duplicate point
+                vx, vy = x / width, y / height
                 if (vx, vy) not in new_points:
                     new_points.append((vx, vy))
-                point_indices.append(new_points.index((vx, vy)) + len(self.points))  # offset for temporary
+                point_indices.append(new_points.index((vx, vy)) + len(self.points))
 
-            # Generate edges and store globally if unique
+            # Generate edges
             tile_edges = []
             for j in range(len(point_indices)):
                 a = point_indices[j]
@@ -2077,14 +2090,51 @@ class MapEditor(QMainWindow):
             })
             self.next_tile_id += 1
 
-        # Append new edges and points after generation
         self.edges.extend(new_edges)
         self.points.extend(new_points)
 
         self.compute_neighbors()
         self.update_status()
         self.canvas.update()
-        print(f"Generated {len(self.tiles)} Voronoi tiles.")
+        print(f"Generated {len(self.tiles)} Voronoi tiles (clipped to image bounds).")
+
+    def detect_biomes(self):
+        if not self.tiles or not self.points:
+            QMessageBox.warning(self, "Warning", "No tiles available. Please generate tiles first.")
+            return
+
+        file_name, _ = QFileDialog.getOpenFileName(self, "Load Biome Mask Image", "", "Image Files (*.png *.jpg *.bmp)")
+        if not file_name:
+            return
+
+        try:
+            img = Image.open(file_name).convert("L")  # Grayscale
+            img = img.resize(self.image_size, Image.BILINEAR)
+            arr = np.array(img)
+
+            width, height = self.image_size
+
+            for tile in self.tiles:
+                # Get center of the tile
+                coords = [self.points[i] for i in tile["points"]]
+                if not coords:
+                    continue
+                avg_x = sum(x for x, _ in coords) / len(coords)
+                avg_y = sum(y for _, y in coords) / len(coords)
+
+                px = int(avg_x * width)
+                py = int(avg_y * height)
+
+                if 0 <= px < width and 0 <= py < height:
+                    intensity = arr[py, px]
+                    tile["type"] = "sea" if intensity < 128 else "plains"
+
+            QMessageBox.information(self, "Success", "Biome detection completed.")
+            self.canvas.update()
+            self.update_status()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to detect biomes: {str(e)}")
 
 
 class Canvas(QWidget):

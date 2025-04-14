@@ -20,7 +20,7 @@ public class ProvinceUI : MonoBehaviour
     private static ProvinceUI instance;
 
     
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
+    // Start is called once
     void Start()
     {
         instance = this;
