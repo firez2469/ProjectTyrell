@@ -11,8 +11,8 @@ Welcome to Tyrell! Where magic slowly fades into the annals of history as the po
 
 1. Upon installation open the `Map1.scene`. The map should be generated.
 2. You may click on tiles in the game to see detail about them, feel free to edit.
-3. In order to create a new random tile map based on the borders for the world of Tyrell, open the `Tools` menu in terminal and run `main.py`. Feel free to modify settings withing:
-    - `vornoi.py` to control the number/concentration of tiles. I have made custom generation maps based on the maps on the tyrell website to detect land/sea and to weigh point generation around areas of interest. (The weighing can be found in `tools/maps/TyrellMapWeights.png`).
+
+**[Map Editor Tool](https://github.com/firez2469/ProjectTyrell/releases/tag/map-editor-v0.1):** Download this tool to edit maps, tiles, tile information etc and export them as json's that are loaded into the game.
 
 ## Current Project Focus (Phase 1)
 ✅=Complete<br>
