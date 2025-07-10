@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 8726ca40fd0f4ef4f85d4a6819bbaab5
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 265465
+  packageName: 'Artistic: Tilt Shift'
+  packageVersion: 2.1.1
+  assetPath: Assets/FronkonGames/Artistic/TiltShift/Editor/TiltShiftFeatureSettingsDrawer.cs
+  uploadId: 751028

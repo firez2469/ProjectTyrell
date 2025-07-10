@@ -1,0 +1,377 @@
+﻿using UnityEngine;
+using Mono.Data.Sqlite;
+using System.Data;
+using System.IO;
+using System.Collections.Generic;
+using DBModels;
+
+public class DatabaseControl : MonoBehaviour
+{
+    private static string dbName = "MyGameDatabase.db";
+    private static string dbPath => Path.Combine(Application.persistentDataPath, dbName);
+    private static string connectionString => $"URI=file:{dbPath}";
+
+    private static SqliteConnection _connection;
+
+    [SerializeField]
+    private bool startLoad = false;
+    void Start()
+    {
+        
+        InitializeConnection();
+        CreateDatabase();
+        if (startLoad)
+        {
+            InsertGame("Battle Royale", "Survival");
+            InsertPlayer("Alice", 1);
+            UpdateGameMode("Battle Royale", "Team Deathmatch");
+        }
+        
+    }
+
+    void OnDestroy()
+    {
+        CloseConnection();
+    }
+
+    public static void InitializeConnection()
+    {
+        if (_connection == null)
+        {
+            _connection = new SqliteConnection(connectionString);
+            _connection.Open();
+            Debug.Log("Database connection opened.");
+        }
+    }
+
+    public static void CloseConnection()
+    {
+        if (_connection != null)
+        {
+            _connection.Close();
+            _connection.Dispose();
+            _connection = null;
+            Debug.Log("Database connection closed.");
+        }
+    }
+
+    public static void CreateDatabase()
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS tiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id INTEGER,  -- in-game tile ID
+                    name TEXT,
+                    description TEXT,
+                    type TEXT,
+                    population INTEGER,
+                    infrastructure_rating INTEGER,
+                    factories INTEGER,
+                    stability INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS tile_neighbors (
+                    tile_id INTEGER,          -- tile.game_id
+                    neighbor_id INTEGER,      -- neighbor.game_id
+                    FOREIGN KEY(tile_id) REFERENCES tiles(game_id),
+                    FOREIGN KEY(neighbor_id) REFERENCES tiles(game_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_tiles_game_id ON tiles(game_id);
+                CREATE INDEX IF NOT EXISTS idx_tile_neighbors_tile_id ON tile_neighbors(tile_id);
+                CREATE INDEX IF NOT EXISTS idx_tile_neighbors_neighbor_id ON tile_neighbors(neighbor_id);
+
+            ";
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log($"SQLite DB ready at: {dbPath}");
+    }
+
+    public static void InsertGame(string name, string mode)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO games (name, mode) VALUES (@name, @mode)";
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@mode", mode);
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log($"Game inserted: {name} [{mode}]");
+    }
+
+    public static void InsertPlayer(string name, int gameId)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "INSERT INTO players (name, game_id) VALUES (@name, @game_id)";
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@game_id", gameId);
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log($"Player inserted: {name} → Game ID {gameId}");
+    }
+
+    public static void UpdateGameMode(string gameName, string newMode)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE games SET mode = @mode WHERE name = @name";
+            command.Parameters.AddWithValue("@mode", newMode);
+            command.Parameters.AddWithValue("@name", gameName);
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log($"Game updated: {gameName} → New Mode: {newMode}");
+    }
+
+    public static void ClearDatabase()
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            DELETE FROM players;
+            DELETE FROM games;
+            DELETE FROM sqlite_sequence;
+            DELETE FROM tiles;
+            DELETE FROM tile_neighbors;
+        ";
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log("All database data cleared.");
+    }
+
+    public static void InsertTile(DBTile tile)
+    {
+        // Insert tile itself
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            INSERT INTO tiles (game_id, name, description, neighbors, type, population, infrastructure_rating, factories, stability)
+            VALUES (@game_id, @name, @description, @neighbors, @type, @population, @infra, @factories, @stability)";
+
+            command.Parameters.AddWithValue("@game_id", tile.gameRefId);
+            command.Parameters.AddWithValue("@name", tile.name);
+            command.Parameters.AddWithValue("@description", tile.description);
+            command.Parameters.AddWithValue("@neighbors", tile.gameId); // stored as in-game ID
+            command.Parameters.AddWithValue("@type", tile.type);
+            command.Parameters.AddWithValue("@population", tile.population);
+            command.Parameters.AddWithValue("@infra", tile.infrastructureRating);
+            command.Parameters.AddWithValue("@factories", tile.factories);
+            command.Parameters.AddWithValue("@stability", tile.stability);
+            command.ExecuteNonQuery();
+        }
+
+        // Insert neighbor links
+        foreach (int neighborGameId in tile.neighborGameIds)
+        {
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = @"
+                INSERT INTO tile_neighbors (tile_id, neighbor_id)
+                VALUES (@tile_game_id, @neighbor_game_id)";
+                command.Parameters.AddWithValue("@tile_game_id", tile.gameId);
+                command.Parameters.AddWithValue("@neighbor_game_id", neighborGameId);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        Debug.Log($"Tile inserted: {tile.name} (Game ID {tile.gameId}) with {tile.neighborGameIds.Count} neighbors.");
+    }
+    public static DBTile GetTileByGameId(int gameId)
+    {
+        DBTile tile = null;
+
+        // Get tile data
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "SELECT * FROM tiles WHERE neighbors = @gid";
+            command.Parameters.AddWithValue("@gid", gameId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    tile = new DBTile
+                    {
+                        dbId = reader.GetInt32(reader.GetOrdinal("id")),
+                        gameRefId = reader.GetInt32(reader.GetOrdinal("game_id")),
+                        gameId = reader.GetInt32(reader.GetOrdinal("neighbors")), // this is our in-game id
+                        name = reader.GetString(reader.GetOrdinal("name")),
+                        description = reader.GetString(reader.GetOrdinal("description")),
+                        type = reader.GetString(reader.GetOrdinal("type")),
+                        population = reader.GetInt32(reader.GetOrdinal("population")),
+                        infrastructureRating = reader.GetInt32(reader.GetOrdinal("infrastructure_rating")),
+                        factories = reader.GetInt32(reader.GetOrdinal("factories")),
+                        stability = reader.GetInt32(reader.GetOrdinal("stability")),
+                    };
+                }
+            }
+        }
+
+        if (tile == null)
+        {
+            Debug.LogWarning($"Tile with gameId={gameId} not found.");
+            return null;
+        }
+
+        // Get neighbors
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "SELECT neighbor_id FROM tile_neighbors WHERE tile_id = @gid";
+            command.Parameters.AddWithValue("@gid", gameId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    tile.neighborGameIds.Add(reader.GetInt32(0));
+                }
+            }
+        }
+
+        Debug.Log($"Loaded tile: {tile.name} (Game ID {tile.gameId}) with {tile.neighborGameIds.Count} neighbors.");
+        return tile;
+    }
+
+    public static DB_Game[] GetListOfGames(int start =0, int end =10)
+    {
+        List<DB_Game> games = new List<DB_Game>();
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+                SELECT id, name, mode
+                FROM games
+                ORDER BY id
+                LIMIT @limit OFFSET @offset
+            ";
+
+            command.Parameters.AddWithValue("@limit", end - start);
+            command.Parameters.AddWithValue("@offset", start);
+
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    DB_Game game = new DB_Game
+                    {
+                        id = reader.GetInt32(reader.GetOrdinal("id")),
+                        name = reader.GetString(reader.GetOrdinal("name")),
+                        mode = reader.GetString(reader.GetOrdinal("mode")),
+                    };
+                    games.Add(game);
+                }
+            }
+
+        }
+
+        Debug.Log($"Loaded {games.Count} games from index {start} to {end}.");
+        return games.ToArray();
+    }
+    public static DB_Game GetGameById(int id)
+    {
+        DB_Game game = null;
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            SELECT id, name, mode
+            FROM games
+            WHERE id = @id";
+            command.Parameters.AddWithValue("@id", id);
+
+            using (var reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    game = new DB_Game
+                    {
+                        id = reader.GetInt32(reader.GetOrdinal("id")),
+                        name = reader.GetString(reader.GetOrdinal("name")),
+                        mode = reader.GetString(reader.GetOrdinal("mode")),
+                    };
+                }
+            }
+        }
+
+        if (game == null)
+        {
+            Debug.LogWarning($"Game with ID {id} not found.");
+        }
+        else
+        {
+            Debug.Log($"Loaded game: {game.name} [ID: {game.id}, Mode: {game.mode}]");
+        }
+
+        return game;
+    }
+
+    public static int CreateNewGame(string name, string mode)
+    {
+        int gameId = -1;
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            INSERT INTO games (name, mode)
+            VALUES (@name, @mode);
+            SELECT last_insert_rowid();";
+
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@mode", mode);
+
+            object result = command.ExecuteScalar();
+            if (result != null && int.TryParse(result.ToString(), out int id))
+            {
+                gameId = id;
+            }
+        }
+
+        Debug.Log($"New game created: {name} [{mode}] → ID: {gameId}");
+        return gameId;
+    }
+
+
+
+}
+
+// Model Structures
+namespace DBModels
+{
+
+    /// <summary>
+    /// High Level Representation of a Game Tile.
+    /// </summary>
+    public class DBTile
+    {
+        public int dbId; // optional: filled only when pulling from DB
+        public int gameId; // unique per game
+        public int gameRefId; // FK to games.id
+        public string name;
+        public string description;
+        public string type;
+
+        public int population;
+        public int infrastructureRating;
+        public int factories;
+        public int stability;
+
+        public List<int> neighborGameIds = new(); // game IDs of neighboring tiles
+    }
+
+    /// <summary>
+    /// High Level representation of a game.
+    /// </summary>
+    public class DB_Game
+    {
+        public int id;
+        public string name;
+        public string mode;
+    }
+}
+

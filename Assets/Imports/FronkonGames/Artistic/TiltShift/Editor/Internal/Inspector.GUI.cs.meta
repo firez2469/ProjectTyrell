@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: e83c7e2b72b07884b9a748ecf7961eb6
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 265465
+  packageName: 'Artistic: Tilt Shift'
+  packageVersion: 2.1.1
+  assetPath: Assets/FronkonGames/Artistic/TiltShift/Editor/Internal/Inspector.GUI.cs
+  uploadId: 751028

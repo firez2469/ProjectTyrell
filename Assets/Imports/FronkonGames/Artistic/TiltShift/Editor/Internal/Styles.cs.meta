@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 933d8a970983e734ca83dc092c2a29e0
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 265465
+  packageName: 'Artistic: Tilt Shift'
+  packageVersion: 2.1.1
+  assetPath: Assets/FronkonGames/Artistic/TiltShift/Editor/Internal/Styles.cs
+  uploadId: 751028
