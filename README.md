@@ -30,7 +30,7 @@ Welcome to Tyrell! Where magic slowly fades into the annals of history as the po
 2. Create Second Layer Structures
 - 💻 Tile Enviornment (land, sea, coast, city, mountain, hills, forest)
 - 💻 Tile Population
-- 🟥 Nation Definition in game. (name, id, leader, token nation focus tree)
+- 💻 Nation Definition in game. (name, id, leader, token nation focus tree)
 - 💻 Tile controller (via nation id).
 
 3. Develop dynamic asset loading system:
@@ -39,7 +39,7 @@ Welcome to Tyrell! Where magic slowly fades into the annals of history as the po
 - 🟥 Load nation information by Json
 
 4. Create DB for info loading
-- 🟥 DB communication (creation, deletion, push/pull)
+- ✅ DB communication (creation, deletion, push/pull)
 - 🟥 Live updates to tile information
 - 🟥 Live updates to nation
 

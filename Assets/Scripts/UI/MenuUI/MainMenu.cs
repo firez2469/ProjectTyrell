@@ -1,3 +1,4 @@
+using DBModels;
 using NUnit.Framework;
 using System.Collections.Generic;
 using TMPro;
@@ -7,6 +8,10 @@ using UnityEngine.UI;
 
 public class MainMenu : MonoBehaviour
 {
+    [Header("Username")]
+    [SerializeField]
+    private TMP_InputField usernameInput;
+
     [Header("Buttons")]
     [SerializeField]
     private Button newGameButton;
@@ -40,6 +45,12 @@ public class MainMenu : MonoBehaviour
     private TMP_InputField gameNameInput;
     [SerializeField]
     private Button createGameButton;
+    [SerializeField]
+    private TMP_Dropdown difficultySelector;
+    [SerializeField]
+    private TMP_Dropdown modeSelector;
+    [SerializeField]
+    private TMP_Dropdown yearSelector;
 
     [Header("Load Game Panel")]
     [SerializeField]
@@ -50,6 +61,15 @@ public class MainMenu : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
+        usernameInput.text = PlayerPrefs.GetString("username");
+        if(usernameInput.text.Length == 0 )
+        {
+            usernameInput.text = "Tyrell Default Enjoyer";
+        }
+        usernameInput.onEndEdit.AddListener((name) => { 
+            PlayerPrefs.SetString("username", name);
+        });
+
         mainMenuPanel.gameObject.SetActive(true);
         newGamePanel.gameObject.SetActive(false);
         loadGamePanel.gameObject.SetActive(false);
@@ -95,10 +115,13 @@ public class MainMenu : MonoBehaviour
                 // Offset the item by height times index
                 newItem.transform.position += Vector3.down * i * (niTransform.rect.yMax - niTransform.rect.yMin);
                 newItem.GetComponentInChildren<TMP_Text>().text = game.name;
+                int gameId = game.id; // Capture the correct ID
+                newItem.GetComponent<Button>().onClick.AddListener(() => LoadGame(gameId));
                 gameItems.Add(newItem);
             }
             i++;
         }
+
         int leftoverStartIndex = Mathf.Max(i, 1);
         int leftoverCount = gameItems.Count - leftoverStartIndex;
 
@@ -143,13 +166,41 @@ public class MainMenu : MonoBehaviour
     private void CreateGame()
     {
         string name = this.gameNameInput.text;
-        if (name.Length > 0)
+        string mode = this.modeSelector.options[this.modeSelector.value].text;
+        string difficulty = this.difficultySelector.options[this.difficultySelector.value].text;
+        string _year = this.yearSelector.options[this.yearSelector.value].text;
+        int year;
+        if(int.TryParse(_year.Split('(')[1].Split(')')[0], out year))
         {
-            DatabaseControl.CreateNewGame(name, "basic");
-
-            SceneManager.LoadScene(1);
+            if (name.Length > 0)
+            {
+                int id = DatabaseControl.CreateNewGame(name, mode, difficulty, year);
+                string founder = usernameInput.text;
+                int pid = DatabaseControl.CreateNewPlayer(name, id);
+                MapDBInitializer.InstantLoad = true;
+                MapDBInitializer.GameId = id;
+                SceneManager.LoadScene(1);
+            }
+            else
+            {
+                print("Invalid name");
+            }
         }
+        else
+        {
+            // Show error.
+            print("Failed to parse");
+        }
+        
 
+    }
+
+    private void LoadGame(int gameid)
+    {
+        print($"Loading game: {gameid}");
+        MapDBInitializer.InstantLoad = false;
+        MapDBInitializer.GameId = gameid;
+        SceneManager.LoadScene(1);
     }
 
     // Update is called once per frame

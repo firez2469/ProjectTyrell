@@ -4,6 +4,7 @@ using System.Data;
 using System.IO;
 using System.Collections.Generic;
 using DBModels;
+using Unity.VisualScripting;
 
 public class DatabaseControl : MonoBehaviour
 {
@@ -12,17 +13,28 @@ public class DatabaseControl : MonoBehaviour
     private static string connectionString => $"URI=file:{dbPath}";
 
     private static SqliteConnection _connection;
+    [SerializeField]
+    private bool clearDBOnStart = false;
 
     [SerializeField]
     private bool startLoad = false;
+
+    public static bool isConnected = false;
+
+
     void Start()
     {
         
         InitializeConnection();
+        if (clearDBOnStart)
+        {
+            ClearDatabase();
+        }
+
         CreateDatabase();
         if (startLoad)
         {
-            InsertGame("Battle Royale", "Survival");
+            InsertGame("Battle Royale", "Survival", "easy", 0);
             InsertPlayer("Alice", 1);
             UpdateGameMode("Battle Royale", "Team Deathmatch");
         }
@@ -40,6 +52,7 @@ public class DatabaseControl : MonoBehaviour
         {
             _connection = new SqliteConnection(connectionString);
             _connection.Open();
+            isConnected = true;
             Debug.Log("Database connection opened.");
         }
     }
@@ -60,48 +73,85 @@ public class DatabaseControl : MonoBehaviour
         using (var command = _connection.CreateCommand())
         {
             command.CommandText = @"
+                CREATE TABLE IF NOT EXISTS games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    mode TEXT,
+                    difficulty TEXT,
+                    starting_year INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS nations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    description TEXT,
+                    game_id INTEGER,
+                    FOREIGN KEY(game_id) REFERENCES games(id)
+                );
+
                 CREATE TABLE IF NOT EXISTS tiles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id INTEGER,  -- in-game tile ID
+                    in_game_id INTEGER, -- in-game tile ID
+                    game_id INTEGER,  -- unique game id
                     name TEXT,
                     description TEXT,
                     type TEXT,
                     population INTEGER,
                     infrastructure_rating INTEGER,
                     factories INTEGER,
-                    stability INTEGER
+                    stability INTEGER,
+                    owner INTEGER,
+                    FOREIGN KEY(owner) REFERENCES nations(id),
+                    FOREIGN KEY(game_id) REFERENCES games(id)
                 );
 
                 CREATE TABLE IF NOT EXISTS tile_neighbors (
                     tile_id INTEGER,          -- tile.game_id
                     neighbor_id INTEGER,      -- neighbor.game_id
+                    game_id INTEGER, -- game reference.
                     FOREIGN KEY(tile_id) REFERENCES tiles(game_id),
-                    FOREIGN KEY(neighbor_id) REFERENCES tiles(game_id)
+                    FOREIGN KEY(neighbor_id) REFERENCES tiles(game_id),
+                    FOREIGN KEY(game_id) REFERENCES games(id)
+                );
+                CREATE TABLE IF NOT EXISTS players (
+                    player_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    game_id INTEGER,
+                    FOREIGN KEY(game_id) REFERENCES games(id)
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_tiles_game_id ON tiles(game_id);
                 CREATE INDEX IF NOT EXISTS idx_tile_neighbors_tile_id ON tile_neighbors(tile_id);
                 CREATE INDEX IF NOT EXISTS idx_tile_neighbors_neighbor_id ON tile_neighbors(neighbor_id);
-
+                CREATE INDEX IF NOT EXISTS idx_players_id ON players(player_id);
             ";
+
             command.ExecuteNonQuery();
         }
 
         Debug.Log($"SQLite DB ready at: {dbPath}");
     }
 
-    public static void InsertGame(string name, string mode)
+    public static void InsertGame(string name, string mode, string difficulty, int startingYear)
     {
         using (var command = _connection.CreateCommand())
         {
-            command.CommandText = "INSERT INTO games (name, mode) VALUES (@name, @mode)";
+            command.CommandText = @"
+            INSERT INTO games (name, mode, difficulty, starting_year)
+            VALUES (@name, @mode, @difficulty, @starting_year)";
+
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@mode", mode);
+            command.Parameters.AddWithValue("@difficulty", difficulty);
+            command.Parameters.AddWithValue("@starting_year", startingYear);
+
             command.ExecuteNonQuery();
         }
 
-        Debug.Log($"Game inserted: {name} [{mode}]");
+        
+        Debug.Log($"Game inserted: {name} [{mode}, {difficulty}, Year: {startingYear}]");
     }
+
 
     public static void InsertPlayer(string name, int gameId)
     {
@@ -131,20 +181,27 @@ public class DatabaseControl : MonoBehaviour
 
     public static void ClearDatabase()
     {
-        using (var command = _connection.CreateCommand())
+        string[] clearCommands = new string[]
         {
-            command.CommandText = @"
-            DELETE FROM players;
-            DELETE FROM games;
-            DELETE FROM sqlite_sequence;
-            DELETE FROM tiles;
-            DELETE FROM tile_neighbors;
-        ";
-            command.ExecuteNonQuery();
+        "DELETE FROM tile_neighbors;",
+        "DELETE FROM tiles;",
+        "DELETE FROM players;",
+        "DELETE FROM games;",
+        "DELETE FROM sqlite_sequence;"
+        };
+
+        foreach (string cmdText in clearCommands)
+        {
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = cmdText;
+                command.ExecuteNonQuery();
+            }
         }
 
         Debug.Log("All database data cleared.");
     }
+
 
     public static void InsertTile(DBTile tile)
     {
@@ -152,19 +209,21 @@ public class DatabaseControl : MonoBehaviour
         using (var command = _connection.CreateCommand())
         {
             command.CommandText = @"
-            INSERT INTO tiles (game_id, name, description, neighbors, type, population, infrastructure_rating, factories, stability)
-            VALUES (@game_id, @name, @description, @neighbors, @type, @population, @infra, @factories, @stability)";
+            INSERT INTO tiles (in_game_id, game_id, name, description, type, population, infrastructure_rating, factories, stability, owner)
+            VALUES (@in_game_id, @game_id, @name, @description, @type, @population, @infra, @factories, @stability, @owner)";
 
-            command.Parameters.AddWithValue("@game_id", tile.gameRefId);
+            command.Parameters.AddWithValue("@in_game_id", tile.dbId);
+            command.Parameters.AddWithValue("@game_id", tile.gameId);
             command.Parameters.AddWithValue("@name", tile.name);
             command.Parameters.AddWithValue("@description", tile.description);
-            command.Parameters.AddWithValue("@neighbors", tile.gameId); // stored as in-game ID
             command.Parameters.AddWithValue("@type", tile.type);
             command.Parameters.AddWithValue("@population", tile.population);
             command.Parameters.AddWithValue("@infra", tile.infrastructureRating);
             command.Parameters.AddWithValue("@factories", tile.factories);
             command.Parameters.AddWithValue("@stability", tile.stability);
+            command.Parameters.AddWithValue("@owner", tile.owner);
             command.ExecuteNonQuery();
+            Debug.Log($"Inserting {tile.name} into tiles");
         }
 
         // Insert neighbor links
@@ -173,10 +232,11 @@ public class DatabaseControl : MonoBehaviour
             using (var command = _connection.CreateCommand())
             {
                 command.CommandText = @"
-                INSERT INTO tile_neighbors (tile_id, neighbor_id)
-                VALUES (@tile_game_id, @neighbor_game_id)";
-                command.Parameters.AddWithValue("@tile_game_id", tile.gameId);
+                INSERT INTO tile_neighbors (tile_id, neighbor_id, game_id)
+                VALUES (@tile_game_id, @neighbor_game_id, @game_id)";
+                command.Parameters.AddWithValue("@tile_game_id", tile.dbId);
                 command.Parameters.AddWithValue("@neighbor_game_id", neighborGameId);
+                command.Parameters.AddWithValue("@game_id", tile.gameId);
                 command.ExecuteNonQuery();
             }
         }
@@ -209,6 +269,8 @@ public class DatabaseControl : MonoBehaviour
                         infrastructureRating = reader.GetInt32(reader.GetOrdinal("infrastructure_rating")),
                         factories = reader.GetInt32(reader.GetOrdinal("factories")),
                         stability = reader.GetInt32(reader.GetOrdinal("stability")),
+                        owner = reader.GetInt32(reader.GetOrdinal("owner"))
+
                     };
                 }
             }
@@ -245,7 +307,7 @@ public class DatabaseControl : MonoBehaviour
         using (var command = _connection.CreateCommand())
         {
             command.CommandText = @"
-                SELECT id, name, mode
+                SELECT id, name, mode, difficulty, starting_year
                 FROM games
                 ORDER BY id
                 LIMIT @limit OFFSET @offset
@@ -263,6 +325,8 @@ public class DatabaseControl : MonoBehaviour
                         id = reader.GetInt32(reader.GetOrdinal("id")),
                         name = reader.GetString(reader.GetOrdinal("name")),
                         mode = reader.GetString(reader.GetOrdinal("mode")),
+                        difficulty = reader.GetString(reader.GetOrdinal("difficulty")),
+                        startingYear = reader.GetInt32(reader.GetOrdinal("starting_year"))
                     };
                     games.Add(game);
                 }
@@ -311,19 +375,21 @@ public class DatabaseControl : MonoBehaviour
         return game;
     }
 
-    public static int CreateNewGame(string name, string mode)
+    public static int CreateNewGame(string name, string mode, string difficulty, int startingYear)
     {
         int gameId = -1;
 
         using (var command = _connection.CreateCommand())
         {
             command.CommandText = @"
-            INSERT INTO games (name, mode)
-            VALUES (@name, @mode);
+            INSERT INTO games (name, mode, difficulty, starting_year)
+            VALUES (@name, @mode, @difficulty, @starting_year);
             SELECT last_insert_rowid();";
 
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@mode", mode);
+            command.Parameters.AddWithValue("@difficulty", difficulty);
+            command.Parameters.AddWithValue("@starting_year", startingYear);
 
             object result = command.ExecuteScalar();
             if (result != null && int.TryParse(result.ToString(), out int id))
@@ -332,12 +398,56 @@ public class DatabaseControl : MonoBehaviour
             }
         }
 
-        Debug.Log($"New game created: {name} [{mode}] → ID: {gameId}");
+        Debug.Log($"New game created: {name} [{mode}, {difficulty}, {startingYear}] → ID: {gameId}");
         return gameId;
     }
 
+    public static int CreateNewPlayer(string name, int gameId)
+    {
+        int _id = -1;
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+                INSERT INTO players (name, game_id)
+                VALUES (@name, @game_id);
+                SELECT last_insert_rowid();
+            ";
 
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@game_id", gameId);
 
+            object result = command.ExecuteScalar();
+            if (result != null && int.TryParse(result.ToString(), out int id))
+            {
+                _id = id;
+            }
+        }
+        return _id;
+
+    }
+
+    public static int CreateNewNation(string name, string description, int gameId)
+    {
+        int _id = -1;
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+                INSERT INTO nations (name, description, game_id)
+                VALUES (@name, @description, @game_id);
+                SELECT last_insert_rowid();
+            ";
+
+            command.Parameters.AddWithValue("@name", name);
+            command.Parameters.AddWithValue("@description", description);
+            command.Parameters.AddWithValue("@game_id", gameId);
+            object result = command.ExecuteScalar();
+            if (result != null && int.TryParse(result.ToString(), out int id))
+            {
+                _id = id;
+            }
+        }
+        return _id;
+    }
 }
 
 // Model Structures
@@ -360,6 +470,7 @@ namespace DBModels
         public int infrastructureRating;
         public int factories;
         public int stability;
+        public int owner = 0; // the id of the nation that owns this tile.
 
         public List<int> neighborGameIds = new(); // game IDs of neighboring tiles
     }
@@ -372,6 +483,9 @@ namespace DBModels
         public int id;
         public string name;
         public string mode;
+        public string difficulty;
+        public int startingYear;
     }
+
 }
 
