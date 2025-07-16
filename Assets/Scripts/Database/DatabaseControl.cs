@@ -243,15 +243,16 @@ public class DatabaseControl : MonoBehaviour
 
         Debug.Log($"Tile inserted: {tile.name} (Game ID {tile.gameId}) with {tile.neighborGameIds.Count} neighbors.");
     }
-    public static DBTile GetTileByGameId(int gameId)
+    public static DBTile GetTileById(int id, int gameId)
     {
         DBTile tile = null;
 
-        // Get tile data
         using (var command = _connection.CreateCommand())
         {
-            command.CommandText = "SELECT * FROM tiles WHERE neighbors = @gid";
-            command.Parameters.AddWithValue("@gid", gameId);
+            command.CommandText = @"
+            SELECT * FROM tiles WHERE in_game_id = @id AND game_id = @game_id";
+            command.Parameters.AddWithValue("@id", id);
+            command.Parameters.AddWithValue("@game_id", gameId);
 
             using (var reader = command.ExecuteReader())
             {
@@ -259,47 +260,45 @@ public class DatabaseControl : MonoBehaviour
                 {
                     tile = new DBTile
                     {
-                        dbId = reader.GetInt32(reader.GetOrdinal("id")),
-                        gameRefId = reader.GetInt32(reader.GetOrdinal("game_id")),
-                        gameId = reader.GetInt32(reader.GetOrdinal("neighbors")), // this is our in-game id
+                        dbId = reader.GetInt32(reader.GetOrdinal("in_game_id")),
+                        gameId = reader.GetInt32(reader.GetOrdinal("game_id")),
                         name = reader.GetString(reader.GetOrdinal("name")),
                         description = reader.GetString(reader.GetOrdinal("description")),
                         type = reader.GetString(reader.GetOrdinal("type")),
-                        population = reader.GetInt32(reader.GetOrdinal("population")),
+                        population = Mathf.RoundToInt(reader.GetFloat(reader.GetOrdinal("population"))),
                         infrastructureRating = reader.GetInt32(reader.GetOrdinal("infrastructure_rating")),
                         factories = reader.GetInt32(reader.GetOrdinal("factories")),
                         stability = reader.GetInt32(reader.GetOrdinal("stability")),
                         owner = reader.GetInt32(reader.GetOrdinal("owner"))
-
                     };
                 }
             }
         }
 
-        if (tile == null)
+        if (tile != null)
         {
-            Debug.LogWarning($"Tile with gameId={gameId} not found.");
-            return null;
-        }
-
-        // Get neighbors
-        using (var command = _connection.CreateCommand())
-        {
-            command.CommandText = "SELECT neighbor_id FROM tile_neighbors WHERE tile_id = @gid";
-            command.Parameters.AddWithValue("@gid", gameId);
-
-            using (var reader = command.ExecuteReader())
+            tile.neighborGameIds = new List<int>();
+            using (var command = _connection.CreateCommand())
             {
-                while (reader.Read())
+                command.CommandText = @"
+                SELECT neighbor_id FROM tile_neighbors 
+                WHERE tile_id = @tile_id AND game_id = @game_id";
+                command.Parameters.AddWithValue("@tile_id", id);
+                command.Parameters.AddWithValue("@game_id", gameId);
+
+                using (var reader = command.ExecuteReader())
                 {
-                    tile.neighborGameIds.Add(reader.GetInt32(0));
+                    while (reader.Read())
+                    {
+                        tile.neighborGameIds.Add(reader.GetInt32(0));
+                    }
                 }
             }
         }
 
-        Debug.Log($"Loaded tile: {tile.name} (Game ID {tile.gameId}) with {tile.neighborGameIds.Count} neighbors.");
         return tile;
     }
+
 
     public static DB_Game[] GetListOfGames(int start =0, int end =10)
     {
@@ -375,6 +374,7 @@ public class DatabaseControl : MonoBehaviour
         return game;
     }
 
+
     public static int CreateNewGame(string name, string mode, string difficulty, int startingYear)
     {
         int gameId = -1;
@@ -440,7 +440,9 @@ public class DatabaseControl : MonoBehaviour
             command.Parameters.AddWithValue("@name", name);
             command.Parameters.AddWithValue("@description", description);
             command.Parameters.AddWithValue("@game_id", gameId);
+            
             object result = command.ExecuteScalar();
+            print(result);
             if (result != null && int.TryParse(result.ToString(), out int id))
             {
                 _id = id;
@@ -448,6 +450,137 @@ public class DatabaseControl : MonoBehaviour
         }
         return _id;
     }
+    public static DBNation GetNationById(int id, int gameId)
+    {
+        DBNation nation = null;
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            SELECT * FROM nations WHERE id = @id AND game_id = @game_id";
+            command.Parameters.AddWithValue("@id", id);
+            command.Parameters.AddWithValue("@game_id", gameId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    nation = new DBNation
+                    {
+                        id = reader.GetInt32(reader.GetOrdinal("id")),
+                        name = reader.GetString(reader.GetOrdinal("name")),
+                        description = reader.GetString(reader.GetOrdinal("description")),
+                        gameId = reader.GetInt32(reader.GetOrdinal("game_id"))
+                    };
+                }
+            }
+        }
+
+        if (nation == null)
+        {
+            Debug.LogWarning($"Nation with ID {id} not found in Game {gameId}.");
+        }
+        else
+        {
+            Debug.Log($"Loaded nation: {nation.name} → Game ID {nation.gameId}");
+        }
+
+        return nation;
+    }
+    public static void DeleteNationsExcept(int preservedId)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "DELETE FROM nations WHERE id != @preservedId";
+            command.Parameters.AddWithValue("@preservedId", preservedId);
+            command.ExecuteNonQuery();
+        }
+
+        Debug.Log($"Deleted all nations except ID {preservedId}.");
+    }
+    public static void ResetAllTileOwnerships(int gameId)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE tiles SET owner = -1 WHERE game_id = @gameId";
+            command.Parameters.AddWithValue("@gameId", gameId);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    public static void MultiplyColumnValues(string tableName, string columnName, double multiplier, int gameId)
+    {
+        if (string.IsNullOrWhiteSpace(tableName) || string.IsNullOrWhiteSpace(columnName))
+        {
+            Debug.LogError("Table name or column name cannot be null or empty.");
+            return;
+        }
+
+        // Basic SQL injection prevention – only allow safe characters
+        if (!System.Text.RegularExpressions.Regex.IsMatch(tableName, @"^[a-zA-Z_][a-zA-Z0-9_]*$") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(columnName, @"^[a-zA-Z_][a-zA-Z0-9_]*$"))
+        {
+            Debug.LogError("Invalid table or column name.");
+            return;
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = $@"
+            UPDATE {tableName}
+            SET {columnName} = {columnName} * @multiplier
+            WHERE game_id = @gameId
+        ";
+
+            command.Parameters.AddWithValue("@multiplier", multiplier);
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            try
+            {
+                int affectedRows = command.ExecuteNonQuery();
+                //Debug.Log($"Updated {affectedRows} rows in '{tableName}.{columnName}' for game_id {gameId} (× {multiplier})");
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"SQL Error while updating column '{columnName}' in table '{tableName}': {ex.Message}");
+            }
+        }
+    }
+
+    public static void UpdateTileOwnership(int id, int gameId, int newOwner)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            UPDATE tiles
+            SET owner = @newOwner
+            WHERE in_game_id = @id AND game_id = @gameId
+        ";
+
+            command.Parameters.AddWithValue("@newOwner", newOwner);
+            command.Parameters.AddWithValue("@id", id);
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            try
+            {
+                int rowsAffected = command.ExecuteNonQuery();
+                if (rowsAffected > 0)
+                {
+                    Debug.Log($"Tile {id} (Game ID: {gameId}) ownership updated to Nation ID: {newOwner}");
+                }
+                else
+                {
+                    Debug.LogWarning($"No tile found with ID {id} for Game {gameId}. Ownership not updated.");
+                }
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"Error updating ownership for tile {id} in game {gameId}: {ex.Message}");
+            }
+        }
+    }
+
+
 }
 
 // Model Structures
@@ -485,6 +618,14 @@ namespace DBModels
         public string mode;
         public string difficulty;
         public int startingYear;
+    }
+
+    public class DBNation
+    {
+        public int id;
+        public string name;
+        public string description;
+        public int gameId;
     }
 
 }

@@ -14,6 +14,7 @@ public class Tile : MonoBehaviour
     public string biome;
     public TileStats stats;
     public int controllerId = -1;
+    private int pController = -1;
 
     public enum TileType { Land, Sea, City, Coast, River, Hills, Mountains }
 
@@ -23,9 +24,46 @@ public class Tile : MonoBehaviour
 
     private bool isHighlighted = false;
 
+    // Static dictionary mapping controller ID to a unique color
+    public static Dictionary<int, Color> controllerColors = new Dictionary<int, Color>();
+    private Color cColor;
+
     private void Start()
     {
+       
 
+    }
+    private Color RandomColor()
+    {
+        return new Color(Random.Range(0, 10000) / 10000f, Random.Range(0, 10000) / 10000f, Random.Range(0, 10000) / 10000f);
+    }
+    private void EnsureControllerColor()
+    {
+        if (controllerId < 0) return; // Skip unassigned controllers
+
+        if (!controllerColors.ContainsKey(controllerId))
+        {
+            // Generate a random color
+            Color randomColor = RandomColor();
+            controllerColors[controllerId] = randomColor;
+        }
+    }
+
+    public Color GetControllerColor()
+    {
+        if (controllerId <= 0) return Color.gray;
+        if (this.type != TileType.Land)
+        {
+            return new Color(0, 0, 0, 0);
+        }
+        if (!controllerColors.ContainsKey(controllerId))
+        {
+            // Generate a random color
+            Color randomColor = RandomColor();
+            controllerColors[controllerId] = randomColor;
+        }
+        return controllerColors[controllerId];
+        
     }
 
     private void SetupLineRenderer(MapMeshGeneration mapGenerator)
@@ -97,5 +135,17 @@ public class Tile : MonoBehaviour
         {
             MapMeshGeneration.highlightLineRenderer.widthMultiplier /= 5f;
         }
+    }
+
+    private void Update()
+    {
+        if (pController != controllerId)
+        {
+            EnsureControllerColor();
+            cColor = GetControllerColor();
+            pController = controllerId;
+            this.GetComponent<MeshRenderer>().materials[0].SetColor("_BaseColor", cColor);
+        }
+            
     }
 }

@@ -1,3 +1,4 @@
+using DBModels;
 using UnityEngine;
 
 
@@ -21,13 +22,16 @@ public class _ProvinceMenuProvinceInformation
     public string ProvinceType { get; private set; }
     public string ProvinceDescription { get; private set; }    
     public Sprite ProvinceIcon { get; private set; }
+
+    public DBTile info { get; private set; }
     
 
-    public _ProvinceMenuProvinceInformation(string name, string type, string description, Sprite icon)
+    public _ProvinceMenuProvinceInformation(string name, string type, string description, Sprite icon, DBTile dbTile)
     {
         ProvinceName = name;
         ProvinceType = type;
         ProvinceDescription = description;
         ProvinceIcon = icon;
+        info = dbTile;
     }
 }

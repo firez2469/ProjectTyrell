@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.Collections;
 using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -32,6 +33,8 @@ public class ProvinceUI : MonoBehaviour
     [SerializeField]
     private Color selectedColorEffect;
     private Color tabColor;
+
+    private bool isUpdating = false;
 
     private _ProvinceMenuProvinceInformation activeInfo;
 
@@ -94,11 +97,9 @@ public class ProvinceUI : MonoBehaviour
         Tile active = Pointer.Selected;
         if(active!= null)
         {
-            activeInfo = new _ProvinceMenuProvinceInformation(active.name, active.type.ToString(), active.Description, ProvinceArt.Where(this.artMaps, active.type));
+            var tile = DatabaseControl.GetTileById(int.Parse(active.Id), MapDBInitializer.GameId);
+            activeInfo = new _ProvinceMenuProvinceInformation(active.name, active.type.ToString(), active.Description, ProvinceArt.Where(this.artMaps, active.type), tile) ;
             this.tabMenus[activeTab].Load(activeInfo);
-            //this.title.text = active.Name;
-            //this.description.text = active.Description;
-            //this.image.sprite = ProvinceArt.Where(this.artMaps, active.type);
         }
         foreach(var tab in this.provinceTabs)
         {
@@ -110,10 +111,30 @@ public class ProvinceUI : MonoBehaviour
         }
         
     }
+    public IEnumerator _IterativeOpen()
+    {
+        isUpdating = true;
+        while (isUpdating)
+        {
+            yield return new WaitForSeconds(1);
+            if (isUpdating)
+            {
+                _Open();
+            }
+        }
+    }
+    private void IterativeOpen()
+    {
+        StartCoroutine(_IterativeOpen());
+    }
 
     public static void Open()
     {
         instance._Open();
+        if (!instance.isUpdating)
+        {
+            instance.IterativeOpen();
+        }
     }
     public void _Close()
     {
@@ -127,6 +148,8 @@ public class ProvinceUI : MonoBehaviour
         {
             tabs[i].gameObject.SetActive(false);
         }
+        StopCoroutine(_IterativeOpen());
+        isUpdating = false;
     }
     public static void Close()
     {
