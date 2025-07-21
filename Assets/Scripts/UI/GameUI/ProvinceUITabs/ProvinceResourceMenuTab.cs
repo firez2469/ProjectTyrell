@@ -16,10 +16,11 @@ public class ProvinceResourceMenuTab : AProvinceMenu
         this.title.text = information.ProvinceName;
         this.type.text = information.ProvinceType;
 
-        this.informationText.text = 
-            $"<b>Population:</b> {information.info.population}\n" +
+        this.informationText.text =
+            $"<b>Population:</b> {information.info.population.ToString("N0")}\n" +
             $"<b>Industry:</b> {information.info.infrastructureRating}\n" +
             $"<b>Stability:</b> {information.info.stability}%\n" +
             $"<b>Factories:</b> {information.info.factories}";
+
     }
 }

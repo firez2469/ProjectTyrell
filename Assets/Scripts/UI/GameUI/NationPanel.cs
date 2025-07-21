@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// Nations Panel is to handle and open information about YOUR nation.
+/// </summary>
 public class NationPanel : MonoBehaviour
 {
     [SerializeField]

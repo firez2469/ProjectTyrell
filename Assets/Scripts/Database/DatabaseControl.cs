@@ -610,6 +610,51 @@ public class DatabaseControl : MonoBehaviour
         }
     }
 
+    public static void MultiplyColumnValuesInclusive(string tableName, string targetColumn, double multiplier, int gameId, string conditionColumn, object conditionValue)
+    {
+        if (string.IsNullOrWhiteSpace(tableName) ||
+            string.IsNullOrWhiteSpace(targetColumn) ||
+            string.IsNullOrWhiteSpace(conditionColumn))
+        {
+            Debug.LogError("Table name, target column, or condition column cannot be null or empty.");
+            return;
+        }
+
+        // Basic SQL injection prevention – only allow safe characters
+        string safePattern = @"^[a-zA-Z_][a-zA-Z0-9_]*$";
+        if (!System.Text.RegularExpressions.Regex.IsMatch(tableName, safePattern) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(targetColumn, safePattern) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(conditionColumn, safePattern))
+        {
+            Debug.LogError("Invalid table or column name.");
+            return;
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = $@"
+            UPDATE {tableName}
+            SET {targetColumn} = {targetColumn} * @multiplier
+            WHERE game_id = @gameId AND {conditionColumn} = @conditionValue
+        ";
+
+            command.Parameters.AddWithValue("@multiplier", multiplier);
+            command.Parameters.AddWithValue("@gameId", gameId);
+            command.Parameters.AddWithValue("@conditionValue", conditionValue);
+
+            try
+            {
+                int affectedRows = command.ExecuteNonQuery();
+                Debug.Log($"Updated {affectedRows} rows in '{tableName}.{targetColumn}' where {conditionColumn} = {conditionValue} for game_id {gameId} (× {multiplier})");
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"SQL Error while conditionally updating column '{targetColumn}' in table '{tableName}': {ex.Message}");
+            }
+        }
+    }
+
+
     public static void UpdateTileOwnership(int id, int gameId, int newOwner)
     {
         using (var command = _connection.CreateCommand())
@@ -718,7 +763,91 @@ public class DatabaseControl : MonoBehaviour
         Debug.Log($"Sum of '{columnName}' in game {gameId} = {sum}");
         return sum;
     }
+    
+    public static List<int> GetNationIdsByGameId(int gameId)
+    {
+        List<int> nationIds = new List<int>();
 
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            SELECT id FROM nations
+            WHERE game_id = @gameId
+        ";
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    nationIds.Add(reader.GetInt32(0));
+                }
+            }
+        }
+
+        return nationIds;
+    }
+
+    public static void UpdateNationIncrements(string table, string column, Dictionary<int, double> nationMultipliers, int gameId)
+    {
+        if (nationMultipliers == null || nationMultipliers.Count == 0)
+        {
+            Debug.LogWarning("No nation multipliers provided.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(table) || string.IsNullOrWhiteSpace(column))
+        {
+            Debug.LogError("Table or column name is null/empty.");
+            return;
+        }
+
+        // Validate table/column names
+        string safePattern = @"^[a-zA-Z_][a-zA-Z0-9_]*$";
+        if (!System.Text.RegularExpressions.Regex.IsMatch(table, safePattern) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(column, safePattern))
+        {
+            Debug.LogError("Invalid table or column name.");
+            return;
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            // Build CASE statement
+            List<string> cases = new List<string>();
+            List<string> ownerIds = new List<string>();
+            foreach (var pair in nationMultipliers)
+            {
+                int nationId = pair.Key;
+                double multiplier = pair.Value;
+
+                string caseClause = $"WHEN {nationId} THEN {multiplier.ToString("0.######")}";
+                cases.Add(caseClause);
+                ownerIds.Add(nationId.ToString());
+            }
+
+            string caseStatement = $"CASE owner\n    {string.Join("\n    ", cases)}\n    ELSE 1.0\nEND";
+            string inClause = string.Join(",", ownerIds);
+
+            command.CommandText = $@"
+            UPDATE {table}
+            SET {column} = {column} * {caseStatement}
+            WHERE game_id = @gameId AND owner IN ({inClause});
+        ";
+
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            try
+            {
+                int rowsAffected = command.ExecuteNonQuery();
+                Debug.Log($"Batch population update complete. Rows affected: {rowsAffected}");
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"SQL Error during batch update: {ex.Message}");
+            }
+        }
+    }
 
 
 }

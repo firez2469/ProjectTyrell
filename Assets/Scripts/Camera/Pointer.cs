@@ -1,3 +1,4 @@
+using DBModels;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -6,6 +7,8 @@ public class Pointer : MonoBehaviour
 {
     private Tile[] tiles;
     private Tile activeTile;
+    private int activeNationId;
+    private DBNation activeNation;
     [SerializeField]
     private LineRenderer selector;
     public static Tile Selected;
@@ -15,6 +18,8 @@ public class Pointer : MonoBehaviour
     {
         this.tiles = FindObjectsByType<Tile>(FindObjectsSortMode.InstanceID);
         Selected = null;
+        activeNationId = -1;
+        activeNation = null;
     }
 
    
@@ -23,7 +28,7 @@ public class Pointer : MonoBehaviour
     void Update()
     {
         
-        if (Input.GetMouseButtonDown(0)&& !UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+        if ((Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))&& !UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
             RaycastHit hit;
@@ -32,16 +37,31 @@ public class Pointer : MonoBehaviour
                 Tile t;
                 if ((t = hit.collider.gameObject.GetComponent<Tile>()) != null)
                 {
-                    if (activeTile != null)
+                    if (Input.GetMouseButtonDown(0))
                     {
-                        activeTile.Hide();
-                    }
+                        if (activeTile != null)
+                        {
+                            activeTile.Hide();
+                        }
 
-                    activeTile = t;
-                    print(t.Name);
-                    t.Show();
-                    Assign(t);
-                    ProvinceUI.Open();
+                        activeTile = t;
+                        print(t.Name);
+                        t.Show();
+                        Assign(t);
+                        ProvinceUI.Open();
+                    }
+                    else if(Input.GetMouseButtonDown(1))
+                    {
+                        if(activeNationId != -1)
+                        {
+                            
+                        }
+
+                        activeNationId = t.controllerId;
+                        NationUI.Open(activeNationId,MapDBInitializer.GameId);
+                        
+                    }
+                    
                     
                 }
             }

@@ -130,11 +130,8 @@ public class MapFiltering : MonoBehaviour
                 }
                 break;
             case MapFilter.Nation:
-                if (pFilter != filter)
-                {
-                    NationColor();
-                    pFilter = filter;
-                }
+                NationColor();
+                pFilter = filter;
                 break;
             default:
                 break;
