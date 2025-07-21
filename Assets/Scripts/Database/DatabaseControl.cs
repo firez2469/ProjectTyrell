@@ -5,6 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using DBModels;
 using Unity.VisualScripting;
+using System;
 
 public class DatabaseControl : MonoBehaviour
 {
@@ -299,6 +300,68 @@ public class DatabaseControl : MonoBehaviour
         return tile;
     }
 
+    public static DBTile[] GetAllTiles(int gameId)
+    {
+        List<DBTile> tiles = new List<DBTile>();
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+            SELECT in_game_id, game_id, name, description, type, population,
+                   infrastructure_rating, factories, stability, owner
+            FROM tiles
+            WHERE game_id = @gameId";
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    DBTile tile = new DBTile
+                    {
+                        dbId = reader.GetInt32(reader.GetOrdinal("in_game_id")),
+                        gameId = reader.GetInt32(reader.GetOrdinal("game_id")),
+                        name = reader.GetString(reader.GetOrdinal("name")),
+                        description = reader.GetString(reader.GetOrdinal("description")),
+                        type = reader.GetString(reader.GetOrdinal("type")),
+                        population = Mathf.RoundToInt(reader.GetFloat(reader.GetOrdinal("population"))),
+                        infrastructureRating = reader.GetInt32(reader.GetOrdinal("infrastructure_rating")),
+                        factories = reader.GetInt32(reader.GetOrdinal("factories")),
+                        stability = reader.GetInt32(reader.GetOrdinal("stability")),
+                        owner = reader.GetInt32(reader.GetOrdinal("owner")),
+                        neighborGameIds = new List<int>()
+                    };
+
+                    tiles.Add(tile);
+                }
+            }
+        }
+
+        // Load neighbors for each tile
+        foreach (var tile in tiles)
+        {
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = @"
+                SELECT neighbor_id FROM tile_neighbors
+                WHERE tile_id = @tile_id AND game_id = @gameId";
+                command.Parameters.AddWithValue("@tile_id", tile.dbId);
+                command.Parameters.AddWithValue("@gameId", gameId);
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        tile.neighborGameIds.Add(reader.GetInt32(0));
+                    }
+                }
+            }
+        }
+
+        Debug.Log($"Loaded {tiles.Count} tiles for Game ID {gameId}.");
+        return tiles.ToArray();
+    }
+
 
     public static DB_Game[] GetListOfGames(int start =0, int end =10)
     {
@@ -579,6 +642,83 @@ public class DatabaseControl : MonoBehaviour
             }
         }
     }
+
+    public static void UpdateTilePopulation(int id, int gameId, int population)
+    {
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = @"
+                UPDATE tiles
+                SET population = @newPopulation
+                WHERE in_game_id = @id AND game_id = @gameId
+            ";
+            command.Parameters.AddWithValue("@newPopulation", population);
+            command.Parameters.AddWithValue("@id", id);
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            try
+            {
+                int rowsAffected = command.ExecuteNonQuery();
+                if ( rowsAffected > 0)
+                {
+                    Debug.Log($"Tile {id} (Game ID: {gameId}) population updated to: {population}");
+                }
+                else
+                {
+                    Debug.LogWarning($"No tile found with ID {id} for game {gameId}. Population not updated.");
+                }
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"Error updating population for tile {id} in game {gameId}: {ex.Message}");
+            }
+        }
+    }
+
+    public static int GetSumOfColumn(int gameId, string columnName)
+    {
+        int sum = 0;
+
+        if (string.IsNullOrWhiteSpace(columnName))
+        {
+            Debug.LogError("Column name cannot be null or empty.");
+            return sum;
+        }
+
+        // Prevent SQL injection by validating the column name
+        if (!System.Text.RegularExpressions.Regex.IsMatch(columnName, @"^[a-zA-Z_][a-zA-Z0-9_]*$"))
+        {
+            Debug.LogError("Invalid column name.");
+            return sum;
+        }
+
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = $@"
+            SELECT SUM({columnName}) FROM tiles
+            WHERE game_id = @gameId
+        ";
+
+            command.Parameters.AddWithValue("@gameId", gameId);
+
+            try
+            {
+                object result = command.ExecuteScalar();
+                if (result != null && result != DBNull.Value)
+                {
+                    sum = Convert.ToInt32(result);
+                }
+            }
+            catch (SqliteException ex)
+            {
+                Debug.LogError($"SQL Error while summing column '{columnName}' in 'tiles': {ex.Message}");
+            }
+        }
+
+        Debug.Log($"Sum of '{columnName}' in game {gameId} = {sum}");
+        return sum;
+    }
+
 
 
 }

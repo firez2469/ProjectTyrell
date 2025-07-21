@@ -1,4 +1,4 @@
-using DBModels;
+﻿using DBModels;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Unity.VisualScripting;
@@ -20,7 +20,8 @@ public class RandomNationInitializer : MonoBehaviour
     private int totalWorldPopulation = 1_000_000_000;
     [SerializeField]
     private bool isInitialized = false;
-
+    private bool isLoaded = false;
+    
     private int[] popDist;
 
 
@@ -34,36 +35,25 @@ public class RandomNationInitializer : MonoBehaviour
     public async Task CreateRandomNationsAsync()
     {
         int gameId = MapDBInitializer.GameId;
-        // Get all in world tiles.
+
+        // Get all in-world tiles
         tiles = tilesParent.GetComponentsInChildren<Tile>();
-        // Clear DB of previous nations information.
+        Dictionary<int, Tile> tileByGameId = new();
+        foreach (Tile t in tiles)
+            tileByGameId[int.Parse(t.Id)] = t;
+
+        // Reset tile data and DB state
         DatabaseControl.DeleteNationsExcept(1);
         DatabaseControl.ResetAllTileOwnerships(gameId);
 
         foreach (Tile tile in tiles)
-        {
             tile.controllerId = -1;
-        }
 
-        // Start generation.
+        // Step 1: Select capitals
+        List<Tile> availableTiles = new(tiles);
+        List<Tile> chosenCapitals = new();
+        System.Random rng = new();
 
-        // Use all tiles
-        List<Tile> availableTiles = new List<Tile>();
-        foreach (Tile tile in tiles)
-        {
-            availableTiles.Add(tile);
-        }
-
-        List<TileDataLite> availableTileData = new List<TileDataLite>();
-        foreach (Tile tile in availableTiles)
-        {
-            availableTileData.Add(new TileDataLite { tile = tile, position = tile.transform.position });
-        }
-
-        List<Tile> chosenCapitals = new List<Tile>();
-        System.Random rng = new System.Random();
-
-        // Select from all tiles
         for (int i = 0; i < nationsCount && availableTiles.Count > 0; i++)
         {
             Tile selected = null;
@@ -72,13 +62,11 @@ public class RandomNationInitializer : MonoBehaviour
             while (attempts < 1000)
             {
                 Tile candidate = availableTiles[rng.Next(availableTiles.Count)];
-
                 bool isFarEnough = true;
 
                 foreach (Tile existing in chosenCapitals)
                 {
-                    float dist = Vector3.Distance(candidate.transform.position, existing.transform.position);
-                    if (dist < nationsMinDist)
+                    if (Vector3.Distance(candidate.transform.position, existing.transform.position) < nationsMinDist)
                     {
                         isFarEnough = false;
                         break;
@@ -90,6 +78,7 @@ public class RandomNationInitializer : MonoBehaviour
                     selected = candidate;
                     break;
                 }
+
                 attempts++;
             }
 
@@ -100,15 +89,12 @@ public class RandomNationInitializer : MonoBehaviour
             }
         }
 
+        Debug.Log("Step 1: Capitals selected.");
 
+        // Step 2: Ownership assignment via BFS
+        Queue<(Tile, int)> frontier = new();
+        HashSet<Tile> visited = new();
 
-        Debug.Log("Step 1 of Nation Generation Complete!");
-
-        // Step 2: Spread ownership from each capital until no valid neighbor is left
-        Queue<(Tile tile, int nationId)> frontier = new Queue<(Tile, int)>();
-        HashSet<Tile> visited = new HashSet<Tile>();
-        
-        // Initialize frontier with all capitals
         for (int i = 0; i < chosenCapitals.Count; i++)
         {
             Tile capital = chosenCapitals[i];
@@ -119,55 +105,36 @@ public class RandomNationInitializer : MonoBehaviour
 
         while (frontier.Count > 0)
         {
-            int currentLevelSize = frontier.Count;
+            var (current, nationId) = frontier.Dequeue();
 
-            // Process all nodes in this level (BFS layer)
-            for (int i = 0; i < currentLevelSize; i++)
+            foreach (string neighborStr in current.neighbors)
             {
-                var (current, nationId) = frontier.Dequeue();
-
-                foreach (string neighborStr in current.neighbors)
+                if (int.TryParse(neighborStr, out int neighborId) &&
+                    tileByGameId.TryGetValue(neighborId, out Tile neighbor) &&
+                    !visited.Contains(neighbor))
                 {
-                    if (int.TryParse(neighborStr, out int neighborId))
-                    {
-                        Tile neighbor = System.Array.Find(tiles, t => int.Parse(t.Id) == neighborId);
-                        if (neighbor != null &&
-                            !visited.Contains(neighbor) &&
-                            (neighbor.controllerId == -1 || neighbor.controllerId == 0 || neighbor.controllerId == 1))
-                        {
-                            neighbor.controllerId = nationId;
-                            frontier.Enqueue((neighbor, nationId));
-                            visited.Add(neighbor);
-                        }
-                    }
+                    neighbor.controllerId = nationId;
+                    frontier.Enqueue((neighbor, nationId));
+                    visited.Add(neighbor);
                 }
             }
         }
 
+        Debug.Log("Step 2: Ownership BFS complete.");
 
-
-        Debug.Log("Step 2 of Nation Generation Complete!");
-
-        // Step 3 & 4: Create DB Nations
+        // Step 3 & 4: Create nations in DB
         DBNation[] nations = new DBNation[nationsCount];
         for (int i = 0; i < chosenCapitals.Count; i++)
         {
             string name = $"Nation {i + 1}";
             string desc = $"Autogenerated nation #{i + 1}";
             int id = DatabaseControl.CreateNewNation(name, desc, gameId);
-            nations[i] = new DBNation
-            {
-                name = name,
-                description = desc,
-                gameId = gameId,
-                id = id
-            };
+            nations[i] = new DBNation { name = name, description = desc, gameId = gameId, id = id };
         }
-        
 
-        Debug.Log("Step 3 & 4 of Nation Generation Complete!");
+        Debug.Log("Step 3 & 4: Nations created in database.");
 
-        // Step 5: Push tile ownership to DB
+        // Step 5: Push ownership to DB
         await Task.Run(() =>
         {
             foreach (Tile tile in tiles)
@@ -179,8 +146,76 @@ public class RandomNationInitializer : MonoBehaviour
             }
         });
 
-        Debug.Log($"Initialized {chosenCapitals.Count} nations.");
+        Debug.Log("Step 5: Tile ownership pushed to DB.");
+
+        // Step 6: BFS from capitals to measure distance for population falloff
+        Dictionary<Tile, (int nationId, int distance)> tileAssignments = new();
+        Queue<(Tile, int nationId, int distance)> popFrontier = new();
+
+        for (int i = 0; i < chosenCapitals.Count; i++)
+        {
+            Tile capital = chosenCapitals[i];
+            tileAssignments[capital] = (i, 0);
+            popFrontier.Enqueue((capital, i, 0));
+        }
+
+        while (popFrontier.Count > 0)
+        {
+            var (current, nationId, dist) = popFrontier.Dequeue();
+
+            foreach (string neighborStr in current.neighbors)
+            {
+                if (int.TryParse(neighborStr, out int neighborId) &&
+                    tileByGameId.TryGetValue(neighborId, out Tile neighbor) &&
+                    neighbor.controllerId == nationId &&
+                    !tileAssignments.ContainsKey(neighbor))
+                {
+                    tileAssignments[neighbor] = (nationId, dist + 1);
+                    popFrontier.Enqueue((neighbor, nationId, dist + 1));
+                }
+            }
+        }
+
+        Debug.Log("Step 6: Distance map created for population distribution.");
+
+        // Step 7: Calculate and normalize weights
+        Dictionary<int, double> nationWeightSums = new();
+        Dictionary<Tile, double> tileWeights = new();
+
+        foreach (var entry in tileAssignments)
+        {
+            Tile tile = entry.Key;
+            int nationId = entry.Value.nationId;
+            int dist = entry.Value.distance;
+
+            double weight = 1.0 / ((dist + 1) * (dist + 1)); // Falloff function
+            tileWeights[tile] = weight;
+
+            if (!nationWeightSums.ContainsKey(nationId))
+                nationWeightSums[nationId] = 0;
+
+            nationWeightSums[nationId] += weight;
+        }
+
+        double totalWeight = 0;
+        foreach (var sum in nationWeightSums.Values)
+            totalWeight += sum;
+
+        // Step 8: Assign population to each tile based on normalized weight
+        foreach (var kvp in tileWeights)
+        {
+            Tile tile = kvp.Key;
+            double weight = kvp.Value;
+            int population = Mathf.RoundToInt((float)(weight / totalWeight * totalWorldPopulation));
+            tile.stats.population = population;
+            if (tile.type == Tile.TileType.Sea)
+                continue;
+            DatabaseControl.UpdateTilePopulation(int.Parse(tile.Id), gameId, population);
+        }
+
+        Debug.Log("Step 8: Population distributed and pushed to DB.");
     }
+
 
     public async Task UpdateTileOwnershipFromDatabaseAsync(int gameId)
     {
@@ -205,14 +240,36 @@ public class RandomNationInitializer : MonoBehaviour
         Debug.Log("Tile ownerships synced from database.");
     }
 
+    public void InitializeAll()
+    {
+        tiles = tilesParent.GetComponentsInChildren<Tile>();
+
+        foreach (Tile tile in tiles)
+        {
+            DBTile dbTile = DatabaseControl.GetTileById(int.Parse(tile.Id),MapDBInitializer.GameId);
+            if (dbTile != null)
+            {
+                int ownerId = dbTile.owner;
+                tile.controllerId = ownerId;
+                tile.stats.population = dbTile.population;
+            }
+        }
+    }
+    
 
     // Update is called once per frame
     async void Update()
     {
-        if (!isInitialized)
+        if (!isInitialized &&!isLoaded)
         {
             isInitialized = true;
+            isLoaded = true;
             await CreateRandomNationsAsync();
+        }
+        else if (!isLoaded)
+        {
+            InitializeAll();
+            isLoaded = true;
         }
     }
 

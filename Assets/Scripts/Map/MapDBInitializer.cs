@@ -20,7 +20,8 @@ public class MapDBInitializer : MonoBehaviour
     private string wildernessName = "Wilderness";
     [SerializeField]
     private string wildernessDescription = "The wilds, unexplored and vast. Open for any to claim...";
-   
+
+
     void Start()
     {
         if (gidOverride != -1)
@@ -82,9 +83,10 @@ public class MapDBInitializer : MonoBehaviour
             }
             print("Completed insertion");
         });
-
+        
         Debug.Log("DB initialization complete.");
     }
+
 
     void Update()
     {

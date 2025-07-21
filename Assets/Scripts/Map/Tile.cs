@@ -30,9 +30,21 @@ public class Tile : MonoBehaviour
 
     private void Start()
     {
-       
 
     }
+    private Color GetBiomeColor()
+    {
+        switch(this.type)
+        {
+            case TileType.Land:
+                return Color.green;
+            case TileType.Sea:
+                return Color.blue;
+            default:
+                return new Color(0, 0, 0, 0);
+        }
+    }
+
     private Color RandomColor()
     {
         return new Color(Random.Range(0, 10000) / 10000f, Random.Range(0, 10000) / 10000f, Random.Range(0, 10000) / 10000f);
@@ -137,15 +149,13 @@ public class Tile : MonoBehaviour
         }
     }
 
+    public void SetColor(Color clr)
+    {
+        this.GetComponent<MeshRenderer>().materials[0].SetColor("_BaseColor",clr);
+    }
+
     private void Update()
     {
-        if (pController != controllerId)
-        {
-            EnsureControllerColor();
-            cColor = GetControllerColor();
-            pController = controllerId;
-            this.GetComponent<MeshRenderer>().materials[0].SetColor("_BaseColor", cColor);
-        }
-            
+
     }
 }
