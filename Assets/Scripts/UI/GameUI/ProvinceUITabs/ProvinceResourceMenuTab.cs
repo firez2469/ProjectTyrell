@@ -13,6 +13,7 @@ public class ProvinceResourceMenuTab : AProvinceMenu
 
     public override void Load(_ProvinceMenuProvinceInformation information)
     {
+        print("Updating province information...");
         this.title.text = information.ProvinceName;
         this.type.text = information.ProvinceType;
 

@@ -117,10 +117,8 @@ public class ProvinceUI : MonoBehaviour
         while (isUpdating)
         {
             yield return new WaitForSeconds(1);
-            if (isUpdating)
-            {
-                _Open();
-            }
+            _Open();
+            
         }
     }
     private void IterativeOpen()
@@ -133,6 +131,7 @@ public class ProvinceUI : MonoBehaviour
         instance._Open();
         if (!instance.isUpdating)
         {
+            print("Updating...");
             instance.IterativeOpen();
         }
     }

@@ -41,6 +41,7 @@ public class PopulationGrowth : MonoBehaviour
 
         foreach (int nationId in nationIds)
         {
+            print("nation id:" + nationId);
             float multiplier = defualtPopGrowthSpeed + UnityEngine.Random.Range(-popGrowthVariance, popGrowthVariance);
             growthRates[nationId] = multiplier;
         }

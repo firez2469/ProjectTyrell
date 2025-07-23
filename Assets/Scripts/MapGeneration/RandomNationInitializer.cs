@@ -18,7 +18,7 @@ public class RandomNationInitializer : MonoBehaviour
     private float nationsMinDist = 0.25f;
     [SerializeField]
     private int totalWorldPopulation = 1_000_000_000;
-    [SerializeField]
+
     private bool isInitialized = false;
     private bool isLoaded = false;
     
@@ -28,7 +28,7 @@ public class RandomNationInitializer : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-
+        isInitialized = !MapDBInitializer.InstantLoad;
 
     }
 
@@ -260,6 +260,9 @@ public class RandomNationInitializer : MonoBehaviour
     // Update is called once per frame
     async void Update()
     {
+        if (MapDBInitializer.isMapInitializing)
+            return;
+        
         if (!isInitialized &&!isLoaded)
         {
             isInitialized = true;
@@ -268,6 +271,7 @@ public class RandomNationInitializer : MonoBehaviour
         }
         else if (!isLoaded)
         {
+            print("Is already initialized. loading...");
             InitializeAll();
             isLoaded = true;
         }

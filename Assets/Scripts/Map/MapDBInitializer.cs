@@ -21,6 +21,13 @@ public class MapDBInitializer : MonoBehaviour
     [SerializeField]
     private string wildernessDescription = "The wilds, unexplored and vast. Open for any to claim...";
 
+    public static bool isMapInitializing {  get; private set; }
+
+
+    private void Awake()
+    {
+        isMapInitializing = true;
+    }
 
     void Start()
     {
@@ -28,10 +35,15 @@ public class MapDBInitializer : MonoBehaviour
         {
             GameId = gidOverride;
         }
+        if (isInitialized)
+        {
+            isMapInitializing = false;
+        }
     }
 
     private async Task RunInitializationAsync(int gameId = 0)
     {
+        isMapInitializing = true;
         Debug.Log("Starting DB tile initialization...");
 
         // Step 0: Initilaize Wilderness Nation before further map preparations.
@@ -85,6 +97,7 @@ public class MapDBInitializer : MonoBehaviour
         });
         
         Debug.Log("DB initialization complete.");
+        isMapInitializing = false;
     }
 
 
@@ -95,5 +108,10 @@ public class MapDBInitializer : MonoBehaviour
             _ = RunInitializationAsync(GameId); // fire-and-forget
             isInitialized = true;
         }
+        if (!MapDBInitializer.InstantLoad)
+        {
+            isMapInitializing = false;
+        }
+        
     }
 }

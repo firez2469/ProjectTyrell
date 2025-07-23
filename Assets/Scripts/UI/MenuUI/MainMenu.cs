@@ -102,11 +102,14 @@ public class MainMenu : MonoBehaviour
 
         DBModels.DB_Game[] games = DatabaseControl.GetListOfGames();
         int i = 0;
+
         foreach(var game in games)
         {
             if (i < gameItems.Count)
             {
                 gameItems[i].GetComponentInChildren<TMP_Text>().text = game.name;
+                int gameId = game.id + 0;
+                gameItems[i].GetComponent<Button>().onClick.AddListener(() => LoadGame(gameId));
             }
             else
             {
@@ -115,7 +118,7 @@ public class MainMenu : MonoBehaviour
                 // Offset the item by height times index
                 newItem.transform.position += Vector3.down * i * (niTransform.rect.yMax - niTransform.rect.yMin);
                 newItem.GetComponentInChildren<TMP_Text>().text = game.name;
-                int gameId = game.id; // Capture the correct ID
+                int gameId = game.id+0; // Capture the correct ID
                 newItem.GetComponent<Button>().onClick.AddListener(() => LoadGame(gameId));
                 gameItems.Add(newItem);
             }
